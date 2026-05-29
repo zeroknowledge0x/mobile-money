@@ -124,6 +124,42 @@ export const ScopeGroup = {
     ApiKeyScope.BALANCE_READ,
 } as const;
 
+// ─── Scope Sets (resource -> scope name arrays) ──────────────────────────────
+
+/**
+ * Resource-oriented arrays of scope names. Useful for rendering admin UI
+ * checklists and for programmatic validation when creating keys from the UI.
+ */
+export const ScopeSets = {
+  TRANSACTIONS: [
+    "TRANSACTIONS_READ",
+    "TRANSACTIONS_WRITE",
+    "TRANSACTIONS_REFUND",
+    "TRANSACTIONS_EXPORT",
+  ] as ApiKeyScopeName[],
+
+  BALANCE: ["BALANCE_READ", "BALANCE_WRITE"] as ApiKeyScopeName[],
+
+  DEPOSITS: ["DEPOSITS_READ", "DEPOSITS_INITIATE"] as ApiKeyScopeName[],
+
+  WITHDRAWALS: ["WITHDRAWALS_READ", "WITHDRAWALS_INITIATE"] as ApiKeyScopeName[],
+
+  USERS: ["USERS_READ", "USERS_WRITE", "KYC_WRITE"] as ApiKeyScopeName[],
+
+  WEBHOOKS: ["WEBHOOKS_READ", "WEBHOOKS_WRITE"] as ApiKeyScopeName[],
+
+  RATES: ["RATES_READ"] as ApiKeyScopeName[],
+
+  REPORTS: ["REPORTS_READ"] as ApiKeyScopeName[],
+
+  ADMIN: ["KEYS_MANAGE", "ADMIN"] as ApiKeyScopeName[],
+} as const;
+
+/** Return all available scope names (ordered as defined). */
+export function listAllScopeNames(): ApiKeyScopeName[] {
+  return Object.keys(ApiKeyScope) as ApiKeyScopeName[];
+}
+
 // ─── Time-of-Day Window ───────────────────────────────────────────────────────
 
 export interface TimeWindow {
