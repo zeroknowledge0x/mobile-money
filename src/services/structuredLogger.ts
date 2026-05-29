@@ -2,6 +2,8 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import util from "util";
+import { randomUUID } from "crypto";
+import { redact } from "../utils/redact";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -17,6 +19,10 @@ interface StructuredError {
 interface StructuredLogEntry extends JsonRecord {
   "@timestamp": string;
   message: string;
+  /** Stable per-process identifier: hostname:pid — used for distributed tracing */
+  instance_id: string;
+  /** Distributed trace identifier — populated from request context when available */
+  trace_id: string;
   log: {
     level: LogLevel;
   };
@@ -42,6 +48,8 @@ const SERVICE_NAME = process.env.SERVICE_NAME || "mobile-money-api";
 const SERVICE_ENVIRONMENT = process.env.NODE_ENV || "development";
 const DEFAULT_LOG_FILE_PATH =
   process.env.LOG_FILE_PATH || path.join(process.cwd(), "logs", "app.log");
+/** Stable per-process identifier used in every log line for distributed tracing */
+const INSTANCE_ID = `${os.hostname()}:${process.pid}`;
 
 let installed = false;
 let fileStream: fs.WriteStream | null = null;
@@ -65,14 +73,22 @@ function tryParseJsonObject(value: string): JsonRecord | null {
 }
 
 function serializeError(
-  error: Error & { code?: string | number },
-): StructuredError {
-  return {
+  error: Error & { code?: string | number; [key: string]: unknown },
+): JsonRecord {
+  const result: JsonRecord = {
     name: error.name,
     message: error.message,
     stack: error.stack,
     code: error.code !== undefined ? String(error.code) : undefined,
   };
+  // Copy all enumerable own properties so that extra fields attached to the
+  // Error (e.g. statusCode, details, token) are preserved for redaction.
+  for (const key of Object.keys(error)) {
+    if (!(key in result)) {
+      result[key] = error[key];
+    }
+  }
+  return result;
 }
 
 function serializeUnknown(value: unknown): unknown {
@@ -225,6 +241,14 @@ export function buildStructuredLogEntry(
       typeof merged.message === "string" && merged.message.trim().length > 0
         ? merged.message
         : toMessage(args) || `console.${normalizedLevel}`,
+    instance_id:
+      typeof merged.instance_id === "string" ? merged.instance_id : INSTANCE_ID,
+    trace_id:
+      typeof merged.trace_id === "string"
+        ? merged.trace_id
+        : typeof merged.traceId === "string"
+          ? merged.traceId
+          : randomUUID(),
     log: {
       level: normalizedLevel,
     },
@@ -257,7 +281,8 @@ export function buildStructuredLogEntry(
   }
 
   const errorArg = args.find(
-    (arg): arg is Error & { code?: string | number } => arg instanceof Error,
+    (arg): arg is Error & { code?: string | number; [key: string]: unknown } =>
+      arg instanceof Error,
   );
   if (errorArg && entry.error === undefined) {
     entry.error = serializeError(errorArg);
@@ -278,7 +303,9 @@ function getLogStream(): fs.WriteStream {
 
 function writeEntry(level: LogLevel, args: unknown[]): void {
   const entry = buildStructuredLogEntry(level, args);
-  const line = JSON.stringify(entry);
+  // Redact sensitive fields before serialising — covers every log call site.
+  const safeEntry = redact(entry) as typeof entry;
+  const line = JSON.stringify(safeEntry);
   const output = `${line}\n`;
 
   if (level === "error" || level === "warn") {

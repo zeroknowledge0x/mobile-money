@@ -13,6 +13,19 @@ export const env = cleanEnv(process.env, {
     desc: "PostgreSQL connection string",
     example: "postgresql://user:password@localhost:5432/dbname",
   }),
+  SANDBOX_DATABASE_URL: str({
+    desc: "PostgreSQL connection string for sandbox environment",
+    example: "postgresql://user:password@localhost:5432/dbname_sandbox",
+    default: "",
+  }),
+  IS_SANDBOX: bool({
+    desc: "Whether the application is running in sandbox mode",
+    default: false,
+  }),
+  APP_MAINTENANCE_MODE: bool({
+    desc: "Whether the application is in maintenance mode (read-only)",
+    default: false,
+  }),
   STELLAR_ISSUER_SECRET: str({
     desc: "Stellar secret key for the issuer account",
     example: "S...",
@@ -31,7 +44,11 @@ export const env = cleanEnv(process.env, {
   }),
   DB_ENCRYPTION_KEY: str({
     default: "development-encryption-key-32-chars-long",
-    desc: "Secret key for PII encryption in database",
+    desc: "Secret key for PII encryption in database (AES-256-GCM global key material)",
+  }),
+  PII_MASTER_KEY: str({
+    default: "development-pii-master-key-32-chars!",
+    desc: "Master key for per-user HKDF key derivation. Must be a high-entropy secret in production. Never log or expose this value.",
   }),
   REFRESH_TOKEN_EXPIRES_IN: str({
     default: process.env.REFRESH_TOKEN_EXPIRES_IN,
@@ -58,16 +75,35 @@ export const env = cleanEnv(process.env, {
     default: "mobile-money",
     desc: "PagerDuty deduplication key prefix for incident grouping",
   }),
+  ADMIN_API_KEY: str({
+    default: "",
+    desc: "Admin API key for internal tooling",
+    example: "admin-secret-key",
+  }),
+  APQ_TTL_SECONDS: str({
+    default: "86400",
+    desc: "TTL in seconds for Automatic Persisted Query entries in Redis (default: 86400 = 24h)",
+  }),
+  AML_API_KEY: str({
+    default: "",
+    desc: "API key for third-party AML/sanction screening provider (e.g. Elliptic, Chainalysis)",
+    example: "ell_live_xxxxxxxxxxxx",
+  }),
 });
 
 // Re-export specific values for convenience
 export const {
   DATABASE_URL,
+  SANDBOX_DATABASE_URL,
+  IS_SANDBOX,
   STELLAR_ISSUER_SECRET,
   REDIS_URL,
   STELLAR_HORIZON_URL,
   STELLAR_NETWORK,
   DB_ENCRYPTION_KEY,
+  PII_MASTER_KEY,
   PAGERDUTY_INTEGRATION_KEY,
   PAGERDUTY_DEDUP_KEY,
+  ADMIN_API_KEY,
+  APP_MAINTENANCE_MODE,
 } = env;
