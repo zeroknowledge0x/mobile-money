@@ -20,8 +20,8 @@ export interface ReserveInfo {
 
 // Stellar reserves in stroops (1 XLM = 10,000,000 stroops)
 const STROOPS_PER_XLM = 10_000_000;
-const BASE_RESERVE_STROOPS = 500_000; // 0.5 XLM
-const SUBENTRY_RESERVE_STROOPS = 500_000; // 0.5 XLM per trustline/offer/data
+const BASE_RESERVE_STROOPS = 5_000_000; // 0.5 XLM
+const SUBENTRY_RESERVE_STROOPS = 5_000_000; // 0.5 XLM per trustline/offer/data
 
 /**
  * Fetch account data and calculate reserves
@@ -34,8 +34,8 @@ export async function calculateStellarReserve(
   const server = getStellarServer();
   const account = await server.loadAccount(publicKey);
 
-  // Base reserve: 2 XLM (1 for account + 1 for signing key)
-  const baseReserveXlm = BASE_RESERVE_STROOPS / STROOPS_PER_XLM;
+  // Base reserve: 2 * Base reserve (1 for account + 1 for signing key)
+  const baseReserveXlm = (2 * BASE_RESERVE_STROOPS) / STROOPS_PER_XLM;
 
   // Count trustlines (non-native balance entries)
   const trustlineCount = account.balances.filter(
@@ -43,8 +43,8 @@ export async function calculateStellarReserve(
   ).length;
 
   // Count other subentries (offers, data entries, etc)
-  // The account object has numSponsoring/numSponsored for sponsorship tracking
-  const subentryCount = trustlineCount;
+  // We use the actual subentry_count if available, otherwise fallback to trustline count.
+  const subentryCount = (account as any).subentry_count ?? trustlineCount;
 
   // Calculate trustline reserve
   const trustlineReserveStroops = subentryCount * SUBENTRY_RESERVE_STROOPS;

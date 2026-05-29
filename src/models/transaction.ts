@@ -3,6 +3,7 @@ import { generateReferenceNumber } from "../utils/referenceGenerator";
 import { encrypt, decrypt } from "../utils/encryption";
 import { WebSocketManager } from "../websocket";
 import { getRedisPubSub } from "../graphql/redisPubSub";
+import { CachedTransactionInvalidation } from "../services/cachedTransactionService";
 import {
   SubscriptionChannels,
   transactionChannel,
@@ -17,6 +18,21 @@ export enum TransactionStatus {
   Failed = "failed",
   Cancelled = "cancelled",
   Review = "review",
+  ClawedBack = "clawed_back",
+}
+
+export interface Transaction {
+  id: string;
+  referenceNumber: string;
+  type: string;
+  amount: string;
+  phoneNumber: string;
+  provider: string;
+  status: TransactionStatus;
+  userId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  [key: string]: any;
 }
 
 const MAX_TAGS = 10;
@@ -104,6 +120,18 @@ export class TransactionModel {
     const metadata = validateMetadata(data.metadata);
     const ref = await generateReferenceNumber();
 
+    // Invalidate caches before creating transaction to ensure fresh data on next query
+    if (data.userId) {
+      await CachedTransactionInvalidation.invalidateUserCaches(data.userId).catch(err => {
+        console.warn("[cache] Failed to invalidate user caches on transaction create", err);
+      });
+    }
+    if (data.provider) {
+      await CachedTransactionInvalidation.invalidateProviderStats(data.provider).catch(err => {
+        console.warn("[cache] Failed to invalidate provider stats on transaction create", err);
+      });
+    }
+
     const result = await queryWrite(
       `INSERT INTO transactions (
         reference_number, provider_reference, type, amount, currency,
@@ -167,7 +195,21 @@ export class TransactionModel {
     const res = await queryWrite(q, params);
     if (!res.rowCount) return;
 
-    const row = res.rows[0];
+    const row = result.rows[0];
+
+    // ── Invalidate caches on transaction status update ────────────────────
+    if (row.user_id) {
+      await CachedTransactionInvalidation.invalidateUserCaches(row.user_id).catch(err => {
+        console.warn("[cache] Failed to invalidate user caches on transaction status update", err);
+      });
+    }
+    await CachedTransactionInvalidation.invalidateGeneralStats().catch(err => {
+      console.warn("[cache] Failed to invalidate general stats on transaction update", err);
+    });
+
+    // ── Publish GraphQL subscription event ──────────────────────────────
+    // Publish to both the per-transaction channel (targeted) and the
+    // broadcast channel (for clients watching all transactions).
     const pubsub = getRedisPubSub();
 
     const payload: TransactionUpdatedPayload = {
@@ -217,5 +259,19 @@ export class TransactionModel {
     );
 
     return res.rows[0];
+  }
+
+  async findCompletedByUserSince(userId: string, since: Date): Promise<Transaction[]> {
+    const query = `
+      SELECT ${TRANSACTION_SELECT_COLUMNS}
+      FROM transactions
+      WHERE user_id = $1
+        AND status = 'completed'
+        AND created_at >= $2
+      ORDER BY created_at DESC
+    `;
+
+    const result = await queryRead(query, [userId, since]);
+    return result.rows.map(mapTransactionRow);
   }
 }

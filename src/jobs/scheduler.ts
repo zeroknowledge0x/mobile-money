@@ -15,6 +15,9 @@ import { runProviderHealthCheckJob } from "./providerHealthCheck";
 import { runKycTierUpgradeJob } from "./kycTierUpgradeJob";
 import { runLiquidityRebalanceJob } from "./liquidityRebalanceJob";
 import { runCrossChainMonitorJob } from "./crossChainMonitorJob";
+import { runDailyProviderReconciliation } from "./providerReconciliationJob";
+import { runReconciliationJob } from "./reconciliationJob";
+
 
 interface JobConfig {
   name: string;
@@ -78,10 +81,22 @@ const JOBS: JobConfig[] = [
     handler: runProviderHealthCheckJob,
   },
   {
+    name: "provider-reconciliation",
+    // Daily at 4:00 AM - runs automated reconciliation against provider CSV reports
+    schedule: process.env.PROVIDER_RECONCILIATION_CRON || "0 4 * * *",
+    handler: runDailyProviderReconciliation,
+  },
+  {
     name: "monthly-invoice",
     // 1st of every month at midnight
     schedule: "0 0 1 * *",
     handler: runMonthlyInvoiceJob,
+  },
+  {
+    name: "reconciliation",
+    // Daily at 5:00 AM
+    schedule: process.env.RECONCILIATION_CRON || "0 5 * * *",
+    handler: runReconciliationJob,
   },
 ];
 

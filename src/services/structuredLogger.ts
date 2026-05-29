@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import util from "util";
+import { randomUUID } from "crypto";
 import { redact } from "../utils/redact";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
@@ -18,6 +19,10 @@ interface StructuredError {
 interface StructuredLogEntry extends JsonRecord {
   "@timestamp": string;
   message: string;
+  /** Stable per-process identifier: hostname:pid — used for distributed tracing */
+  instance_id: string;
+  /** Distributed trace identifier — populated from request context when available */
+  trace_id: string;
   log: {
     level: LogLevel;
   };
@@ -43,6 +48,8 @@ const SERVICE_NAME = process.env.SERVICE_NAME || "mobile-money-api";
 const SERVICE_ENVIRONMENT = process.env.NODE_ENV || "development";
 const DEFAULT_LOG_FILE_PATH =
   process.env.LOG_FILE_PATH || path.join(process.cwd(), "logs", "app.log");
+/** Stable per-process identifier used in every log line for distributed tracing */
+const INSTANCE_ID = `${os.hostname()}:${process.pid}`;
 
 let installed = false;
 let fileStream: fs.WriteStream | null = null;
@@ -234,6 +241,14 @@ export function buildStructuredLogEntry(
       typeof merged.message === "string" && merged.message.trim().length > 0
         ? merged.message
         : toMessage(args) || `console.${normalizedLevel}`,
+    instance_id:
+      typeof merged.instance_id === "string" ? merged.instance_id : INSTANCE_ID,
+    trace_id:
+      typeof merged.trace_id === "string"
+        ? merged.trace_id
+        : typeof merged.traceId === "string"
+          ? merged.traceId
+          : randomUUID(),
     log: {
       level: normalizedLevel,
     },

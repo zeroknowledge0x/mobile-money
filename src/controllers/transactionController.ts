@@ -18,11 +18,7 @@ import {
 } from "../config/providers";
 import type { TransactionJobData } from "../queue/transactionQueue";
 import { amlService } from "../services/aml";
-    const {
-      before,
-      after,
-    } = req.query;
-import { travelRuleService } from "../compliance/travelRule";
+import { twoFactorWithdrawalService } from "../services/twoFactorWithdrawalService";
 import {
   CancelTransactionResponse,
   LimitExceededErrorResponse,
@@ -30,6 +26,9 @@ import {
   TransactionDetailResponse,
   TransactionResponse,
 } from "../types/api";
+import { checkDestinationTrustline, TrustlineError } from "../stellar/trustlines";
+import { getConfiguredPaymentAsset } from "../services/stellar/assetService";
+import { ERROR_CODES } from "../constants/errorCodes";
 
 const IDEMPOTENCY_TTL_HOURS = Number(
   process.env.IDEMPOTENCY_KEY_TTL_HOURS || 24,
@@ -85,9 +84,10 @@ export const transactionSchema = z.object({
     .string()
     .max(256, { message: "Note cannot exceed 256 characters" })
     .optional(),
+  // Optional 2FA fields for withdrawals
+  twoFactorToken: z.string().optional(),
+  backupCode: z.string().optional(),
 });
-    const before = req.query.before as string | undefined;
-    const after = req.query.after as string | undefined;
 
 export const validateTransaction = (
   req: Request,
@@ -455,6 +455,55 @@ async function processTransactionRequest(
       return res.status(400).json(body);
     }
 
+    // Check mandatory 2FA for withdrawals
+    if (type === "withdraw") {
+      const requires2FA = await twoFactorWithdrawalService.requires2FAForWithdrawal(userId);
+      if (requires2FA) {
+        const twoFactorToken = req.body.twoFactorToken || req.headers['x-2fa-token'] as string;
+        const backupCode = req.body.backupCode;
+
+        if (!twoFactorToken && !backupCode) {
+          return res.status(400).json({
+            error: "2FA verification required for withdrawal",
+            code: "TWO_FACTOR_REQUIRED",
+            message: "This account requires 2FA verification for all withdrawals. Please provide a TOTP token or backup code."
+          });
+        }
+
+        const verificationResult = await twoFactorWithdrawalService.verifyWithdrawal2FA({
+          userId,
+          token: twoFactorToken,
+          backupCode
+        });
+
+        if (!verificationResult.success) {
+          return res.status(401).json({
+            error: "2FA verification failed",
+            code: "TWO_FACTOR_INVALID",
+            message: verificationResult.error || "Invalid 2FA token or backup code"
+          });
+        }
+      }
+    }
+
+    // Verify destination Stellar account has a trustline for the payment asset
+    // before creating the transaction record, to avoid on-chain failures.
+    if (type === "withdraw") {
+      try {
+        const paymentAsset = getConfiguredPaymentAsset();
+        await checkDestinationTrustline(stellarAddress, paymentAsset);
+      } catch (err) {
+        if (err instanceof TrustlineError) {
+          return res.status(400).json({
+            error: err.message,
+            code: ERROR_CODES.TRUSTLINE_MISSING,
+          });
+        }
+        // Unexpected Horizon error — surface as 502 so callers can retry
+        return res.status(502).json({ error: "Failed to verify destination trustline" });
+      }
+    }
+
     const createOrReuse = async (): Promise<CreateTransactionResponse> => {
       if (idempotencyKey) {
         const existingTransaction =
@@ -503,6 +552,7 @@ async function processTransactionRequest(
                 phoneNumber,
                 provider,
                 stellarAddress,
+                requestId: (req as any).id,
               },
               {
                 jobId: transaction.id,

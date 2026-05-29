@@ -19,6 +19,9 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_URL: postgresql://user:password@postgres:5432/mobilemoney_stellar
       REDIS_URL: redis://redis:6379
+      # Loki transport — optional, falls back to stdout when unset
+      LOKI_HOST: ${LOKI_HOST:-http://loki:3100}
+      SERVICE_NAME: ${SERVICE_NAME:-mobile-money-api}
     ports:
       - "3000:3000"
     networks:
@@ -80,8 +83,10 @@ services:
       - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./logging/grafana/provisioning:/etc/grafana/provisioning
     networks:
       - mobilemoney_net
 

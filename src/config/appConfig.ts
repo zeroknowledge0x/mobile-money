@@ -1,6 +1,6 @@
 import convict from 'convict';
-import path from 'path';
-import fs from 'fs';
+import * as path from 'path';
+import * as fs from 'fs';
 
 /**
  * Centralized application configuration using Convict.
@@ -17,6 +17,20 @@ export const configSchema = convict({
     default: 'development',
     env: 'NODE_ENV',
   },
+  isSandbox: {
+    doc: 'Whether the application is running in sandbox mode',
+    format: Boolean,
+    default: false,
+    env: 'IS_SANDBOX',
+  },
+  maintenance: {
+    enabled: {
+      doc: 'Whether the application is in maintenance mode (read-only)',
+      format: Boolean,
+      default: false,
+      env: 'APP_MAINTENANCE_MODE',
+    },
+  },
 
   // Database
   database: {
@@ -25,6 +39,12 @@ export const configSchema = convict({
       format: String,
       default: 'postgresql://localhost/mobile_money',
       env: 'DATABASE_URL',
+    },
+    sandboxUrl: {
+      doc: 'PostgreSQL connection URL for sandbox environment',
+      format: String,
+      default: 'postgresql://localhost/mobile_money_sandbox',
+      env: 'SANDBOX_DATABASE_URL',
     },
   },
 
@@ -52,6 +72,18 @@ export const configSchema = convict({
         format: 'nat',
         default: 500000,
         env: 'MTN_MAX_AMOUNT',
+      },
+      callbackSecret: {
+        doc: 'MTN callback HMAC secret for verifying incoming callbacks',
+        format: String,
+        default: '',
+        env: 'MTN_CALLBACK_SECRET',
+      },
+      callbackSignatureHeader: {
+        doc: 'Header used by MTN for callback signature verification',
+        format: String,
+        default: 'X-Callback-Signature',
+        env: 'MTN_CALLBACK_SIGNATURE_HEADER',
       },
     },
     airtel: {
