@@ -8,12 +8,22 @@
   --ifm-color-primary-lightest: #3cad6e;
 }
 
+[data-theme='dark'] {
+  --ifm-color-primary: #4ecb71;
+  --ifm-color-primary-dark: #3ac55f;
+  --ifm-color-primary-darker: #30c255;
+  --ifm-color-primary-darkest: #1fa643;
+  --ifm-color-primary-light: #62d183;
+  --ifm-color-primary-lighter: #6cd48d;
+  --ifm-color-primary-lightest: #8edeac;
+}
+
 /* Code block copy button styling */
-div.codeBlockContainer_node_modules-\@docusaurus-theme-classic-src-theme-CodeBlock-styles-module:hover .copyButton_node_modules-\@docusaurus-theme-classic-src-theme-CodeBlock-styles-module {
+div.codeBlockContainer_node_modules-\\@docusaurus-theme-classic-src-theme-CodeBlock-styles-module:hover .copyButton_node_modules-\\@docusaurus-theme-classic-src-theme-CodeBlock-styles-module {
   opacity: 1;
 }
 
-button.copyButton_node_modules-\@docusaurus-theme-classic-src-theme-CodeBlock-styles-module {
+button.copyButton_node_modules-\\@docusaurus-theme-classic-src-theme-CodeBlock-styles-module {
   transition: opacity 0.2s ease-in-out;
 }
 
@@ -22,7 +32,30 @@ button.copyButton_node_modules-\@docusaurus-theme-classic-src-theme-CodeBlock-st
   fill: var(--ifm-color-primary);
 }
 
+[data-theme='dark'] .redoc-wrap .copy-icon-svg {
+  fill: var(--ifm-color-primary);
+}
+
 /* Ensure code blocks have visible copy buttons */
 pre code {
   position: relative;
+}
+
+/* Dark mode sidebar styling */
+[data-theme='dark'] .menu__link {
+  color: var(--ifm-menu-color);
+}
+
+[data-theme='dark'] .menu__link--active {
+  color: var(--ifm-menu-color-active);
+}
+
+/* Dark mode navbar styling */
+[data-theme='dark'] .navbar {
+  background-color: var(--ifm-navbar-background-color);
+}
+
+/* Dark mode footer styling */
+[data-theme='dark'] .footer {
+  background-color: var(--ifm-footer-background-color);
 }
