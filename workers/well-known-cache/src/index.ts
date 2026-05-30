@@ -5,6 +5,87 @@ interface Env {
   STELLAR_TOML_STALE_WHILE_REVALIDATE: string;
   DEFAULT_MAX_AGE: string;
   DEFAULT_STALE_WHILE_REVALIDATE: string;
+  /** Comma-separated list of IPs or CIDRs to block (e.g. "192.168.1.0/24,10.0.0.1") */
+  IP_BLACKLIST?: string;
+}
+
+// ---------------------------------------------------------------------------
+// IP Blacklist — edge-level blocking before requests reach the origin
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a CIDR string (e.g. "192.168.1.0/24") into a [baseInt, maskBits] tuple.
+ * Returns null if the CIDR is invalid.
+ */
+function parseCIDR(cidr: string): [number, number] | null {
+  const parts = cidr.trim().split("/");
+  if (parts.length !== 2) return null;
+  const octets = parts[0].split(".").map(Number);
+  if (octets.length !== 4 || octets.some((o) => isNaN(o) || o < 0 || o > 255))
+    return null;
+  const prefix = parseInt(parts[1], 10);
+  if (isNaN(prefix) || prefix < 0 || prefix > 32) return null;
+  const ipInt =
+    ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>>
+    0;
+  return [ipInt, prefix];
+}
+
+/**
+ * Convert a dotted-quad IPv4 string to an unsigned 32-bit integer.
+ * Returns null if the string is not a valid IPv4 address.
+ */
+function ipToInt(ip: string): number | null {
+  const octets = ip.trim().split(".").map(Number);
+  if (octets.length !== 4 || octets.some((o) => isNaN(o) || o < 0 || o > 255))
+    return null;
+  return (
+    ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>>
+    0
+  );
+}
+
+/**
+ * Check whether an IPv4 address matches a CIDR block.
+ * Supports both exact IPs (parsed as /32) and CIDR notation.
+ */
+function ipMatchesCIDR(ipInt: number, cidr: [number, number]): boolean {
+  const [base, prefix] = cidr;
+  if (prefix === 0) return true; // /0 matches everything
+  const mask = (~0 << (32 - prefix)) >>> 0;
+  return (ipInt & mask) === (base & mask);
+}
+
+/**
+ * Parse the IP_BLACKLIST env var and check if the client IP should be blocked.
+ * Supports:
+ *   - Exact IPs: "192.168.1.1"
+ *   - CIDR ranges: "192.168.1.0/24"
+ *   - Comma-separated lists: "192.168.1.0/24,10.0.0.1,172.16.0.0/12"
+ */
+function isIpBlacklisted(
+  clientIp: string,
+  blacklistEnv: string | undefined,
+): boolean {
+  if (!blacklistEnv) return false;
+  const entries = blacklistEnv
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const clientInt = ipToInt(clientIp);
+  if (clientInt === null) return false;
+
+  for (const entry of entries) {
+    if (entry.includes("/")) {
+      const cidr = parseCIDR(entry);
+      if (cidr && ipMatchesCIDR(clientInt, cidr)) return true;
+    } else {
+      // Exact IP match
+      const entryInt = ipToInt(entry);
+      if (entryInt !== null && clientInt === entryInt) return true;
+    }
+  }
+  return false;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -65,6 +146,28 @@ function logMetrics(metrics: RequestMetrics): void {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    // Edge IP blacklist — block before any processing
+    const clientIp =
+      request.headers.get("cf-connecting-ip") ||
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      "";
+    if (clientIp && isIpBlacklisted(clientIp, env.IP_BLACKLIST)) {
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          type: "ip_blacklist_block",
+          ip: clientIp,
+          pathname: new URL(request.url).pathname,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      return errorResponse(
+        403,
+        "Forbidden",
+        "Access denied: your IP is blacklisted.",
+      );
+    }
+
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }

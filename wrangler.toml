@@ -14,3 +14,6 @@ STELLAR_TOML_STALE_WHILE_REVALIDATE = "86400"
 # Cache TTL for other .well-known paths (seconds)
 DEFAULT_MAX_AGE = "300"
 DEFAULT_STALE_WHILE_REVALIDATE = "3600"
+# IP Blacklist — comma-separated IPs or CIDRs to block at the edge
+# Examples: "203.0.113.1,198.51.100.0/24,192.0.2.0/24"
+# IP_BLACKLIST = ""
