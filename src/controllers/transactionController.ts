@@ -3,7 +3,7 @@ import { z } from "zod";
 import { StellarService } from "../services/stellar/stellarService";
 import { MobileMoneyService } from "../services/mobilemoney/mobileMoneyService";
 import { maskPhoneNumber } from "../utils/masking";
-import { validatePhoneProviderMatch } from "../utils/phoneUtils";
+import { validatePhoneProviderMatch, isTanzaniaNumber, validateTanzaniaProviderMatch } from "../utils/phoneUtils";
 import {
   Transaction,
   TransactionModel,
@@ -416,7 +416,14 @@ async function processTransactionRequest(
     }
 
     // Recipient Mobile Network Validation
-    const networkMatch = validatePhoneProviderMatch(phoneNumber, provider);
+    let networkMatch: { valid: boolean; error?: string };
+    if (isTanzaniaNumber(phoneNumber)) {
+      // Use Tanzania-specific validation with operator prefix checking
+      networkMatch = validateTanzaniaProviderMatch(phoneNumber, provider);
+    } else {
+      // Use existing validation for other regions (Uganda, Rwanda, Cameroon, Ghana, etc.)
+      networkMatch = validatePhoneProviderMatch(phoneNumber, provider);
+    }
     if (!networkMatch.valid) {
       return res.status(400).json({
         error: networkMatch.error,
