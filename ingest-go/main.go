@@ -28,6 +28,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
+	"github.com/valyala/fastjson"
 	"github.com/valyala/fasthttp"
 )
 
@@ -92,6 +93,81 @@ func (p *CallbackPayload) Validate() error {
 		return fmt.Errorf("timestamp must be RFC3339")
 	}
 	return nil
+}
+
+func parseCallbackPayload(body []byte) (*CallbackPayload, error) {
+	var payload CallbackPayload
+	v, err := fastjson.ParseBytes(body)
+	if err != nil {
+		return nil, err
+	}
+
+	payload.EventType, err = getStringField(v, "event_type")
+	if err != nil {
+		return nil, err
+	}
+	payload.Provider, err = getStringField(v, "provider")
+	if err != nil {
+		return nil, err
+	}
+	payload.Reference, err = getStringField(v, "reference")
+	if err != nil {
+		return nil, err
+	}
+	payload.Currency, err = getStringField(v, "currency")
+	if err != nil {
+		return nil, err
+	}
+	payload.Status, err = getStringField(v, "status")
+	if err != nil {
+		return nil, err
+	}
+	payload.Timestamp, err = getStringField(v, "timestamp")
+	if err != nil {
+		return nil, err
+	}
+
+	if payload.Amount, err = getFloatField(v, "amount"); err != nil {
+		return nil, err
+	}
+
+	if metaVal := v.Get("metadata"); metaVal != nil {
+		buf, err := metaVal.MarshalTo(nil)
+		if err != nil {
+			return nil, err
+		}
+		var metadata map[string]interface{}
+		if err := json.Unmarshal(buf, &metadata); err != nil {
+			return nil, err
+		}
+		payload.Metadata = metadata
+	}
+
+	return &payload, nil
+}
+
+func getStringField(v *fastjson.Value, key string) (string, error) {
+	if bytes, err := v.GetStringBytes(key); err == nil {
+		return string(bytes), nil
+	} else if v.Get(key) == nil {
+		return "", nil
+	} else {
+		return "", fmt.Errorf("%s must be a string", key)
+	}
+}
+
+func getFloatField(v *fastjson.Value, key string) (float64, error) {
+	val := v.Get(key)
+	if val == nil {
+		return 0, nil
+	}
+	if f, err := val.Float64(); err == nil {
+		return f, nil
+	}
+	if s, err := val.StringBytes(); err == nil {
+		return strconv.ParseFloat(string(s), 64)
+	}
+	return 0, fmt.Errorf("%s must be a number", key)
 }
 
 // ---------------------------------------------------------------------------
@@ -189,8 +265,8 @@ func handleIngest(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	var payload CallbackPayload
-	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
+	payload, err := parseCallbackPayload(ctx.PostBody())
+	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
 		ctx.SetBodyString(`{"error":"invalid JSON"}`)
 		return
