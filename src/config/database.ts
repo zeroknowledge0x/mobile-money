@@ -1,6 +1,7 @@
 import { Pool, QueryConfig, QueryResult, QueryResultRow, PoolClient } from "pg";
 import { isReadOnlyQuery } from "../utils/readOnlyDetector";
 import { IS_SANDBOX, SANDBOX_DATABASE_URL, DATABASE_URL } from "./env";
+import { scrub } from "../utils/scrub";
 
 
 // Configuration for slow query logging
@@ -230,7 +231,7 @@ export async function queryRead<T extends import("pg").QueryResultRow = any>(
       return result;
     } catch (err) {
       // Log replica failure and fall back to primary
-      console.warn("Read replica query failed, falling back to primary:", err);
+      console.warn("Read replica query failed, falling back to primary:", scrub(String(err)));
     } finally {
       client?.release();
     }
@@ -327,7 +328,7 @@ export async function getPgBouncerStats(): Promise<{
       clientConnections: (parseInt(row.cl_active || 0) + parseInt(row.cl_idle || 0)),
     };
   } catch (err) {
-    console.warn("Failed to get PgBouncer stats:", err);
+    console.warn("Failed to get PgBouncer stats:", scrub(String(err)));
     return {
       activeConnections: 0,
       idleConnections: 0,

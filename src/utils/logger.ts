@@ -116,16 +116,61 @@ const logger: Logger = pino(
     // Redact sensitive fields before any transport sees them
     redact: {
       paths: [
+        // Authentication & authorization
         'password',
         'token',
-        'accountNumber',
         'secret',
         'authorization',
         'req.headers.authorization',
         '*.password',
         '*.token',
-        '*.accountNumber',
         '*.secret',
+
+        // PII — financial identifiers
+        'accountNumber',
+        '*.accountNumber',
+
+        // API keys & credentials
+        'apiKey',
+        'api_key',
+        'apiSecret',
+        'api_secret',
+        'privateKey',
+        'private_key',
+        'masterKey',
+        'master_key',
+        'serviceKey',
+        'service_key',
+        'accessKey',
+        'access_key',
+        'secretKey',
+        'secret_key',
+        '*.apiKey',
+        '*.api_key',
+        '*.apiSecret',
+        '*.api_secret',
+        '*.privateKey',
+        '*.private_key',
+        '*.masterKey',
+        '*.master_key',
+
+        // Connection strings & DSNs (may embed credentials)
+        'databaseUrl',
+        'database_url',
+        'dbUrl',
+        'db_url',
+        'connectionString',
+        'connection_string',
+        'redisUrl',
+        'redis_url',
+        '*.databaseUrl',
+        '*.database_url',
+
+        // Webhook / callback secrets
+        'webhookSecret',
+        'webhook_secret',
+        '*.webhookSecret',
+        '*.webhook_secret',
       ],
       placeholder: '[REDACTED]',
       censor: '[REDACTED]',
