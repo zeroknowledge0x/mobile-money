@@ -147,9 +147,13 @@ async function processTransaction(data: TransactionJobData): Promise<Transaction
     provider,
     stellarAddress,
     requestId,
+    _traceId,
   } = data;
 
-  const log = requestId ? logger.child({ requestId, transactionId }) : logger.child({ transactionId });
+  const logFields: Record<string, string> = { transactionId };
+  if (requestId) logFields.requestId = requestId;
+  if (_traceId) logFields.traceId = _traceId;
+  const log = logger.child(logFields);
   log.info({ type, provider }, `[RabbitMQ] Processing transaction`);
 
   const maxAttempts = Math.max(
