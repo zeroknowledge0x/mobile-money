@@ -1,7 +1,7 @@
 # docker-compose.yml
 #
 # Local development environment for sublime247/mobile-money.
-# Starts the app alongside Postgres and Redis with live-reload via ts-node.
+# Starts the app alongside Postgres, Redis, and local mock services for Stellar and SMTP.
 #
 # Usage:
 #   docker compose up          # start everything
@@ -53,6 +53,39 @@ services:
       retries: 10
 
   # ---------------------------------------------------------------------------
+  # Mock SMTP Server (Maildev)
+  # ---------------------------------------------------------------------------
+  maildev:
+    image: maildev/maildev:2.1.0
+    container_name: mobilemoney_maildev
+    restart: unless-stopped
+    ports:
+      - "1080:1080" # Web UI
+      - "1025:1025" # SMTP Port
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 1025 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Local Stellar Quickstart Node
+  # ---------------------------------------------------------------------------
+  stellar:
+    image: stellar/quickstart:latest
+    container_name: mobilemoney_stellar_quickstart
+    restart: unless-stopped
+    ports:
+      - "8000:8000" # Horizon API / Faucet (Friendbot)
+    command: ["--standalone", "--enable-horizon"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
   # Application (live reload via ts-node-dev)
   # ---------------------------------------------------------------------------
   app:
@@ -66,12 +99,20 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      maildev:
+        condition: service_healthy
+      stellar:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       # Override the localhost URLs from .env to use Docker service names
       DATABASE_URL: postgresql://user:password@postgres:5432/mobilemoney_stellar
       REDIS_URL: redis://redis:6379
+      SMTP_HOST: maildev
+      SMTP_PORT: 1025
+      STELLAR_HORIZON_URL: http://stellar:8000
+      STELLAR_NETWORK: local
     ports:
       - "${PORT:-3000}:3000"
     volumes:
