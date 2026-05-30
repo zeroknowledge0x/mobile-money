@@ -12,12 +12,7 @@ import spdy from "spdy";
 import https from "https";
 import fs from "fs";
 import session from "express-session";
-import * as Sentry from "@sentry/node";
-import { register } from "prom-client";
-import { startHeartbeat } from "./services/metrics";
-import { startStellarExporter } from "./services/stellarExporter";
-import { startHeartbeatService, stopHeartbeatService } from "./services/heartbeatService";
-
+import type { SessionOptions } from "express-session";
 import {
   apiVersionMiddleware,
   validateVersionMiddleware,
@@ -39,11 +34,7 @@ import { transactionDisputeRoutes, disputeRoutes } from "./routes/disputes";
 import { statsRoutes } from "./routes/stats";
 import { contactsRoutes } from "./routes/contacts";
 import { reportsRoutes } from "./routes/reports";
-import feesRoutes from "./routes/fees";
-import { createKYCRoutes } from "./routes/kycRoutes";
-import { adminRoutes } from "./routes/admin";
-import kycTierUpgradeRoutes from "./routes/kycTierUpgradeRoutes";
-import { userRoutes } from "./routes/users";
+import { accountingRoutes } from "./routes/accounting";
 import { errorHandler } from "./middleware/errorHandler";
 import {
   connectRedis,
@@ -129,41 +120,20 @@ if (process.env.SENTRY_DSN) {
 app.use(sentryBreadcrumbMiddleware);
 
 app.use(metricsMiddleware);
-applySecurityMiddleware(app);
+app.use(helmet());
 
-const compressionEnabled = getConfigValue("compression.enabled");
-if (compressionEnabled !== false) {
-  /**
-   * Compression middleware options
-   *
-   * - `threshold`: Minimum response size in bytes before compression is applied.
-   * - `level`: zlib compression level (0-9); higher = better compression but more CPU.
-   * - `filter`: Custom predicate deciding whether to compress a response. Returns
-   *     `true` for JSON/GraphQL responses to ensure they are compressed, explicitly
-   *     returns `false` for large binary/media types, and falls back to the
-   *     default `compression.filter` for other content-types.
-   */
+// Compression middleware
+if (process.env.COMPRESSION_ENABLED !== "false") {
   app.use(
     compression({
-      threshold: getConfigValue("compression.threshold"),
-      level: getConfigValue("compression.level"),
+      threshold: parseInt(process.env.COMPRESSION_THRESHOLD || "1024"),
+      level: parseInt(process.env.COMPRESSION_LEVEL || "6"),
       filter: (req, res) => {
         if (req.headers["x-no-compression"]) {
           return false;
         }
-
-        const contentType = String(res.getHeader("content-type") || "");
-
-        // Explicitly compress JSON and GraphQL responses
-        if (
-          contentType.includes("application/json") ||
-          contentType.includes("application/graphql") ||
-          contentType.includes("application/graphql-response+json")
-        ) {
-          return true;
-        }
-
-        // Avoid compressing images, video, audio and already-archived content
+        // Don't compress already compressed content types
+        const contentType = res.getHeader("content-type") as string;
         if (
           contentType &&
           (contentType.includes("image/") ||
@@ -174,8 +144,6 @@ if (compressionEnabled !== false) {
         ) {
           return false;
         }
-
-        // Defer to the package's default filter for all other content-types
         return compression.filter(req, res);
       },
     }),
@@ -232,7 +200,7 @@ const sessionSecret =
 const redisStore = createRedisStore();
 
 app.use(
-  session({
+  session(<SessionOptions>{
     store: redisStore,
     secret: sessionSecret,
     resave: false,
@@ -372,23 +340,24 @@ app.use("/api/v1/stats", statsRoutesV1);
 app.use("/api/v1/vaults", vaultRoutesV1);
 app.use("/api/v1/compliance/travel-rule", travelRuleRoutes);
 
-const deprecatedApiV1Handler: express.RequestHandler = (req, res, next) => {
-  const versionedReq = req as VersionedRequest;
-  versionedReq.apiVersion = "v1";
-  res.setHeader("API-Version", "v1");
-  res.setHeader("Deprecation", "true");
-  res.setHeader(
-    "Sunset",
-    new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toUTCString(),
-  );
-  res.setHeader(
-    "Url",
-    `https://example.com${req.originalUrl.replace("/api/", "/api/v1/")}`,
-  );
-  next();
-};
-
-app.use("/api/transactions", deprecatedApiV1Handler, transactionRoutes);
+app.use(
+  "/api/transactions",
+  (req: VersionedRequest, res, next) => {
+    req.apiVersion = "v1";
+    res.setHeader("API-Version", "v1");
+    res.setHeader("Deprecation", "true");
+    res.setHeader(
+      "Sunset",
+      new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toUTCString(),
+    );
+    res.setHeader(
+      "Url",
+      `https://example.com${req.originalUrl.replace("/api/", "/api/v1/")}`,
+    );
+    next();
+  },
+  transactionRoutes,
+);
 app.use("/api/transactions", transactionDisputeRoutes);
 app.use("/api/transactions/bulk", bulkRoutes);
 app.use("/api/disputes", disputeRoutes);
@@ -396,49 +365,7 @@ app.use("/api/stats", statsRoutes);
 app.use("/api/contacts", contactsRoutes);
 app.use("/api/mtn", mtnCallbacksRouter);
 app.use("/api/reports", reportsRoutes);
-app.use("/api/fees", feesRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/kyc", createKYCRoutes(pool));
-app.use("/api/fees", feesRouter);
-app.use("/api/fee-strategies", feeStrategiesRouter);
-app.use("/api/cross-chain", crossChainRouter);
-app.use("/api/reconciliation", reconciliationRoutes);
-app.use("/api/accounting-reconciliation", accountingReconciliationRoutes);
-app.use("/api/exchange-rate-buffers", exchangeRateBufferRoutes);
-app.use("/api/admin/assets", adminAssetRoutes);
-app.use("/api/settings", settingsRoutes);
-app.use("/api/merchant/webhooks", merchantWebhooksRouter);
 app.use("/api/accounting", accountingRoutes);
-
-// Subscriptions management
-app.use("/api/subscriptions", subscriptionsRoutes);
-
-
-
-// GDPR
-app.use("/api/gdpr", privacyRoutes);
-app.use("/api/developer", developerDashboardRoutes);
-app.use("/api/admin", requireAuth, adminRoutes);
-app.use("/api/admin/providers/status", requireAuth, providerStatusRouter);
-app.use("/api/admin/kyc-upgrades", requireAuth, kycTierUpgradeRoutes);
-app.use("/api/admin/auth", createAdminSep10Router());
-app.use("/sep10", createSep10Router());
-app.use("/sep30", sep30Routes);
-app.use("/sep31", sep31Router);
-app.use("/sep24", sep24Router);
-app.use("/sep38", sep38Router);
-app.use("/sep12", createSep12Router(pool));
-app.use("/.well-known/stellar.toml", tomlRouter);
-
-// Prometheus Metrics Scraper Endpoint
-app.get("/metrics", async (req: Request, res: Response) => {
-  try {
-    res.set("Content-Type", register.contentType);
-    res.end(await register.metrics());
-  } catch (ex) {
-    res.status(500).end(String(ex));
-  }
-});
 
 app.use(
   (
