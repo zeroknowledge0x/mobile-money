@@ -10,7 +10,7 @@ import {
   type TransactionUpdatedPayload,
 } from "../graphql/subscriptions";
 
-export type AssetType = 'native' | 'credit_alphanum4' | 'credit_alphanum12';
+export type AssetType = "native" | "credit_alphanum4" | "credit_alphanum12";
 
 export enum TransactionStatus {
   Pending = "pending",
@@ -18,6 +18,8 @@ export enum TransactionStatus {
   Failed = "failed",
   Cancelled = "cancelled",
   Review = "review",
+  Dispute = "dispute",
+  Reversed = "reversed",
   ClawedBack = "clawed_back",
 }
 
@@ -33,6 +35,25 @@ export interface Transaction {
   createdAt: Date;
   updatedAt: Date;
   [key: string]: any;
+}
+
+export interface TransactionListFilters {
+  minAmount?: number;
+  maxAmount?: number;
+  provider?: string;
+  tags?: string[];
+  referenceNumber?: string;
+  statuses?: TransactionStatus[];
+}
+
+export interface TransactionCursorOptions {
+  before?: string;
+  after?: string;
+}
+
+interface DecodedTransactionCursor {
+  createdAt: Date;
+  id: string;
 }
 
 const MAX_TAGS = 10;
@@ -63,7 +84,8 @@ const TRANSACTION_SELECT_COLUMNS = `
 `;
 
 function validateTags(tags: string[]): void {
-  if (tags.length > MAX_TAGS) throw new Error(`Maximum ${MAX_TAGS} tags allowed`);
+  if (tags.length > MAX_TAGS)
+    throw new Error(`Maximum ${MAX_TAGS} tags allowed`);
   for (const tag of tags) {
     if (!TAG_REGEX.test(tag)) throw new Error(`Invalid tag format: "${tag}"`);
   }
@@ -79,6 +101,30 @@ function validateMetadata(metadata: unknown): Record<string, unknown> {
     throw new Error(`Metadata exceeds ${MAX_METADATA_BYTES / 1024} KB`);
   }
   return metadata as Record<string, unknown>;
+}
+
+function decodeTransactionCursor(cursor: string): DecodedTransactionCursor {
+  const decoded = Buffer.from(cursor, "base64").toString("utf8");
+  const separator = decoded.lastIndexOf("|");
+
+  if (separator === -1) {
+    throw new Error("Invalid transaction cursor");
+  }
+
+  const createdAt = new Date(decoded.slice(0, separator));
+  const id = decoded.slice(separator + 1);
+
+  if (Number.isNaN(createdAt.getTime()) || !id) {
+    throw new Error("Invalid transaction cursor");
+  }
+
+  return { createdAt, id };
+}
+
+function normalizeEndDate(endDate: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(endDate)
+    ? new Date(`${endDate}T23:59:59.999Z`)
+    : new Date(endDate);
 }
 
 export function mapTransactionRow(row: any): any {
@@ -115,6 +161,57 @@ export function mapTransactionRow(row: any): any {
 }
 
 export class TransactionModel {
+  private buildListWhere(
+    startDate?: string,
+    endDate?: string,
+    filters: TransactionListFilters = {},
+  ): { whereSql: string; params: any[] } {
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    const addCondition = (condition: string, value: any) => {
+      params.push(value);
+      conditions.push(condition.replace("?", `$${params.length}`));
+    };
+
+    if (startDate) {
+      addCondition("created_at >= ?", new Date(`${startDate}T00:00:00.000Z`));
+    }
+
+    if (endDate) {
+      addCondition("created_at <= ?", normalizeEndDate(endDate));
+    }
+
+    if (filters.minAmount !== undefined && Number.isFinite(filters.minAmount)) {
+      addCondition("amount >= ?", filters.minAmount);
+    }
+
+    if (filters.maxAmount !== undefined && Number.isFinite(filters.maxAmount)) {
+      addCondition("amount <= ?", filters.maxAmount);
+    }
+
+    if (filters.provider) {
+      addCondition("provider = ?", filters.provider);
+    }
+
+    if (filters.referenceNumber) {
+      addCondition("reference_number = ?", filters.referenceNumber);
+    }
+
+    if (filters.statuses?.length) {
+      addCondition("status = ANY(?)", filters.statuses);
+    }
+
+    if (filters.tags?.length) {
+      addCondition("tags @> ?::text[]", filters.tags);
+    }
+
+    return {
+      whereSql: conditions.length ? conditions.join(" AND ") : "TRUE",
+      params,
+    };
+  }
+
   async create(data: any) {
     validateTags(data.tags ?? []);
     const metadata = validateMetadata(data.metadata);
@@ -122,13 +219,23 @@ export class TransactionModel {
 
     // Invalidate caches before creating transaction to ensure fresh data on next query
     if (data.userId) {
-      await CachedTransactionInvalidation.invalidateUserCaches(data.userId).catch(err => {
-        console.warn("[cache] Failed to invalidate user caches on transaction create", err);
+      await CachedTransactionInvalidation.invalidateUserCaches(
+        data.userId,
+      ).catch((err) => {
+        console.warn(
+          "[cache] Failed to invalidate user caches on transaction create",
+          err,
+        );
       });
     }
     if (data.provider) {
-      await CachedTransactionInvalidation.invalidateProviderStats(data.provider).catch(err => {
-        console.warn("[cache] Failed to invalidate provider stats on transaction create", err);
+      await CachedTransactionInvalidation.invalidateProviderStats(
+        data.provider,
+      ).catch((err) => {
+        console.warn(
+          "[cache] Failed to invalidate provider stats on transaction create",
+          err,
+        );
       });
     }
 
@@ -159,10 +266,8 @@ export class TransactionModel {
         data.idempotencyKey ?? null,
         data.idempotencyExpiresAt ?? null,
         JSON.stringify(metadata),
-        data.locationMetadata
-          ? JSON.stringify(data.locationMetadata)
-          : null,
-      ]
+        data.locationMetadata ? JSON.stringify(data.locationMetadata) : null,
+      ],
     );
 
     return mapTransactionRow(result.rows[0]);
@@ -195,17 +300,27 @@ export class TransactionModel {
     const res = await queryWrite(q, params);
     if (!res.rowCount) return;
 
-    const row = result.rows[0];
+    const row = res.rows[0];
 
     // ── Invalidate caches on transaction status update ────────────────────
     if (row.user_id) {
-      await CachedTransactionInvalidation.invalidateUserCaches(row.user_id).catch(err => {
-        console.warn("[cache] Failed to invalidate user caches on transaction status update", err);
+      await CachedTransactionInvalidation.invalidateUserCaches(
+        row.user_id,
+      ).catch((err) => {
+        console.warn(
+          "[cache] Failed to invalidate user caches on transaction status update",
+          err,
+        );
       });
     }
-    await CachedTransactionInvalidation.invalidateGeneralStats().catch(err => {
-      console.warn("[cache] Failed to invalidate general stats on transaction update", err);
-    });
+    await CachedTransactionInvalidation.invalidateGeneralStats().catch(
+      (err) => {
+        console.warn(
+          "[cache] Failed to invalidate general stats on transaction update",
+          err,
+        );
+      },
+    );
 
     // ── Publish GraphQL subscription event ──────────────────────────────
     // Publish to both the per-transaction channel (targeted) and the
@@ -240,7 +355,7 @@ export class TransactionModel {
          to_tsvector('english', COALESCE(notes,'') || ' ' || COALESCE(admin_notes,'')),
          plainto_tsquery('english',$1)
        ) DESC, created_at DESC`,
-      [query]
+      [query],
     );
 
     return res.rows.map(mapTransactionRow);
@@ -249,19 +364,26 @@ export class TransactionModel {
   async getBalanceStatistics(userId: string) {
     const res = await queryRead(
       `SELECT 
-        COALESCE(SUM(amount) FILTER (WHERE type='deposit'),0)::text as total_deposited,
-        COALESCE(SUM(amount) FILTER (WHERE type='withdraw'),0)::text as total_withdrawn,
-        (COALESCE(SUM(amount) FILTER (WHERE type='deposit'),0) -
-         COALESCE(SUM(amount) FILTER (WHERE type='withdraw'),0))::text as current_balance
-       FROM transactions
-       WHERE user_id=$1 AND status='completed'`,
+        COALESCE(SUM(t.amount) FILTER (WHERE t.type='deposit' AND t.status='completed'),0)::text as total_deposited,
+        COALESCE(SUM(t.amount) FILTER (WHERE t.type='withdraw' AND t.status IN ('completed', 'pending')),0)::text as total_withdrawn,
+        (COALESCE(SUM(t.amount) FILTER (WHERE t.type='deposit' AND t.status='completed'),0) -
+         COALESCE(SUM(t.amount) FILTER (WHERE t.type='withdraw' AND t.status IN ('completed', 'pending')),0))::text as current_balance,
+        (COALESCE(SUM(t.amount) FILTER (WHERE t.type='deposit' AND t.status='completed' AND t.created_at + (u.settlement_delay_days || ' days')::interval <= CURRENT_TIMESTAMP),0) -
+         COALESCE(SUM(t.amount) FILTER (WHERE t.type='withdraw' AND t.status IN ('completed', 'pending')),0))::text as available_balance,
+        COALESCE(SUM(t.amount) FILTER (WHERE t.type='deposit' AND t.status='completed' AND t.created_at + (u.settlement_delay_days || ' days')::interval > CURRENT_TIMESTAMP),0)::text as pending_balance
+       FROM transactions t
+       JOIN users u ON t.user_id = u.id
+       WHERE t.user_id=$1`,
       [userId]
     );
 
     return res.rows[0];
   }
 
-  async findCompletedByUserSince(userId: string, since: Date): Promise<Transaction[]> {
+  async findCompletedByUserSince(
+    userId: string,
+    since: Date,
+  ): Promise<Transaction[]> {
     const query = `
       SELECT ${TRANSACTION_SELECT_COLUMNS}
       FROM transactions
@@ -273,5 +395,119 @@ export class TransactionModel {
 
     const result = await queryRead(query, [userId, since]);
     return result.rows.map(mapTransactionRow);
+  }
+
+  async list(
+    limit = 50,
+    offset = 0,
+    startDate?: string,
+    endDate?: string,
+    filters: TransactionListFilters = {},
+    cursorOptions: TransactionCursorOptions = {},
+  ): Promise<Transaction[]> {
+    const cappedLimit = Math.min(Math.max(limit, 1), 1000);
+    const safeOffset = Math.max(offset, 0);
+    const { before, after } = cursorOptions;
+
+    if (before && after) {
+      throw new Error("Use either before or after cursor, not both");
+    }
+
+    const { whereSql, params } = this.buildListWhere(
+      startDate,
+      endDate,
+      filters,
+    );
+
+    if (after || before) {
+      const cursor = decodeTransactionCursor((after || before) as string);
+      const comparator = after ? "<" : ">";
+      const direction = after ? "DESC" : "ASC";
+      const cursorCreatedAtParam = params.length + 1;
+      const cursorIdParam = params.length + 2;
+      const limitParam = params.length + 3;
+
+      const result = await queryRead(
+        `SELECT ${TRANSACTION_SELECT_COLUMNS}
+         FROM transactions
+         WHERE ${whereSql}
+           AND (created_at, id) ${comparator} ($${cursorCreatedAtParam}, $${cursorIdParam})
+         ORDER BY created_at ${direction}, id ${direction}
+         LIMIT $${limitParam}`,
+        [...params, cursor.createdAt, cursor.id, cappedLimit],
+      );
+
+      return result.rows.map(mapTransactionRow);
+    }
+
+    if (safeOffset > 0) {
+      const anchorOffsetParam = params.length + 1;
+      const limitParam = params.length + 2;
+
+      const result = await queryRead(
+        `WITH anchor AS (
+           SELECT created_at, id
+           FROM transactions
+           WHERE ${whereSql}
+           ORDER BY created_at DESC, id DESC
+           LIMIT 1 OFFSET $${anchorOffsetParam}
+         )
+         SELECT ${TRANSACTION_SELECT_COLUMNS}
+         FROM transactions
+         WHERE ${whereSql}
+           AND EXISTS (SELECT 1 FROM anchor)
+           AND (created_at, id) < (SELECT created_at, id FROM anchor)
+         ORDER BY created_at DESC, id DESC
+         LIMIT $${limitParam}`,
+        [...params, safeOffset - 1, cappedLimit],
+      );
+
+      return result.rows.map(mapTransactionRow);
+    }
+
+    const limitParam = params.length + 1;
+    const result = await queryRead(
+      `SELECT ${TRANSACTION_SELECT_COLUMNS}
+       FROM transactions
+       WHERE ${whereSql}
+       ORDER BY created_at DESC, id DESC
+       LIMIT $${limitParam}`,
+      [...params, cappedLimit],
+    );
+
+    return result.rows.map(mapTransactionRow);
+  }
+
+  async count(
+    startDate?: string,
+    endDate?: string,
+    filters: TransactionListFilters = {},
+  ): Promise<number> {
+    const { whereSql, params } = this.buildListWhere(
+      startDate,
+      endDate,
+      filters,
+    );
+
+    const result = await queryRead(
+      `SELECT COUNT(*)::int AS total
+       FROM transactions
+       WHERE ${whereSql}`,
+      params,
+    );
+
+    return Number(result.rows[0]?.total ?? 0);
+  }
+
+  async findByStatuses(
+    statuses: TransactionStatus[] = [],
+    limit = 50,
+    offset = 0,
+  ): Promise<Transaction[]> {
+    return this.list(limit, offset, undefined, undefined, { statuses });
+  }
+
+  async countByStatuses(statuses: TransactionStatus[] = []): Promise<number> {
+    return this.count(undefined, undefined, { statuses });
   }
 }

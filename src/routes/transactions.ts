@@ -15,11 +15,15 @@ import {
   withdrawHandler,
 } from "../controllers/transactionController";
 import { validateTransaction } from "../middleware/validateTransaction";
+import { normalizeProvider } from "../middleware/normalizeProvider";
+import { validateNetworkMiddleware } from "../middleware/validateNetworkMiddleware";
 import { TimeoutPresets, haltOnTimedout } from "../middleware/timeout";
 import { authenticateToken } from "../middleware/auth";
+import { cancelTransactionRateLimiter } from "../middleware/rateLimit";
 import { checkAccountStatusStrict } from "../middleware/checkAccountStatus";
 import { geolocateMiddleware } from "../middleware/geolocate";
-import { TransactionModel } from "../models/transaction";
+import { geoFencingMiddleware } from "../middleware/geoFencing";
+import { TransactionModel, TransactionStatus } from "../models/transaction";
 import { generateTransactionPdfBuffer } from "../services/pdfReceipt";
 import { generateShareToken, verifyShareToken } from "../utils/share";
 import { createExportRoutes } from "./export";
@@ -71,6 +75,48 @@ transactionRoutes.get(
           error: "Failed to generate receipt PDF",
         },
       );
+    }
+  },
+);
+
+transactionRoutes.get(
+  "/:id/invoice",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  authenticateToken,
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { download } = req.query;
+
+      const transaction = await transactionModel.findById(id);
+      if (!transaction)
+        return res.status(404).json({ error: "Transaction not found" });
+
+      if (transaction.status !== TransactionStatus.Completed)
+        return res.status(400).json({
+          error: "Invoice download is available only for completed transactions",
+        });
+
+      const pdf = await generateTransactionPdfBuffer(transaction, {
+        title: "Invoice",
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      const filename = `invoice-${transaction.referenceNumber}.pdf`;
+      if (download && String(download) === "0") {
+        res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+      } else {
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${filename}"`,
+        );
+      }
+
+      res.status(200).send(pdf);
+    } catch (err) {
+      console.error("Failed to generate invoice PDF:", err);
+      res.status(500).json({ error: "Failed to generate invoice PDF" });
     }
   },
 );
@@ -182,9 +228,12 @@ transactionRoutes.post(
   "/deposit",
   authenticateToken,
   checkAccountStatusStrict,
+  geoFencingMiddleware,
   TimeoutPresets.long,
   haltOnTimedout,
+  normalizeProvider,
   validateTransaction,
+  validateNetworkMiddleware,
   geolocateMiddleware,
   depositHandler,
 );
@@ -193,9 +242,12 @@ transactionRoutes.post(
   "/withdraw",
   authenticateToken,
   checkAccountStatusStrict,
+  geoFencingMiddleware,
   TimeoutPresets.long,
   haltOnTimedout,
+  normalizeProvider,
   validateTransaction,
+  validateNetworkMiddleware,
   geolocateMiddleware,
   withdrawHandler,
 );
@@ -209,6 +261,8 @@ transactionRoutes.get(
 
 transactionRoutes.post(
   "/:id/cancel",
+  authenticateToken,
+  cancelTransactionRateLimiter,
   TimeoutPresets.quick,
   haltOnTimedout,
   cancelTransactionHandler,

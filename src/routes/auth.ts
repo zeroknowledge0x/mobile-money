@@ -27,9 +27,12 @@ import { hashPassword } from "../utils/password";
 import { redisClient } from "../config/redis";
 import { TransactionModel } from "../models/transaction";
 import { EmailService } from "../services/email";
-import { authRateLimiter } from "../middleware/authRateLimit";
-import { createError } from "../middleware/errorHandler";
+import {
+  loginRateLimiter,
+  registerRateLimiter,
+} from "../middleware/authRateLimit";
 import { ERROR_CODES } from "../constants/errorCodes";
+import { createError } from "../middleware/errorHandler";
 
 const emailService = new EmailService();
 
@@ -42,6 +45,7 @@ export const registerSchema = z.object({
     .min(12, "Password must be at least 12 characters")
     .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
     .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number")
     .regex(
       /[^A-Za-z0-9]/,
       "Password must contain at least one special character",
@@ -53,7 +57,7 @@ export const registerSchema = z.object({
  */
 authRoutes.post(
   "/register",
-  authRateLimiter,
+  registerRateLimiter,
   validateRequest(registerSchema),
   async (req: Request, res: Response) => {
     const { phone_number, password } = req.body as z.infer<
@@ -69,11 +73,10 @@ authRoutes.post(
         .status(201)
         .json({ message: "User registered successfully", userId: user.id });
     } catch (error) {
-      throw createError(
-        ERROR_CODES.INTERNAL_ERROR,
-        error instanceof Error ? error.message : "Unknown error",
-        { error: "Registration failed" },
-      );
+      throw createError(ERROR_CODES.INTERNAL_ERROR, "Registration failed", {
+        error: "Registration failed",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   },
 );
@@ -94,7 +97,7 @@ authRoutes.use("/sso/oidc", createOIDCRouter());
  */
 authRoutes.post(
   "/login",
-  authRateLimiter,
+  loginRateLimiter,
   async (req: Request, res: Response) => {
     const { phone_number } = req.body;
 
@@ -378,6 +381,8 @@ authRoutes.get(
         total_deposited: "0",
         total_withdrawn: "0",
         current_balance: "0",
+        available_balance: "0",
+        pending_balance: "0",
       };
 
       if (redisClient.isOpen) {
@@ -398,6 +403,8 @@ authRoutes.get(
               total_deposited: dbStats.total_deposited || "0",
               total_withdrawn: dbStats.total_withdrawn || "0",
               current_balance: dbStats.current_balance || "0",
+              available_balance: dbStats.available_balance || "0",
+              pending_balance: dbStats.pending_balance || "0",
             };
             await redisClient.set(cacheKey, JSON.stringify(balanceStats), {
               EX: 3600,
@@ -414,6 +421,8 @@ authRoutes.get(
             total_deposited: dbStats.total_deposited || "0",
             total_withdrawn: dbStats.total_withdrawn || "0",
             current_balance: dbStats.current_balance || "0",
+            available_balance: dbStats.available_balance || "0",
+            pending_balance: dbStats.pending_balance || "0",
           };
         }
       }
@@ -427,6 +436,8 @@ authRoutes.get(
           total_deposited: balanceStats.total_deposited,
           total_withdrawn: balanceStats.total_withdrawn,
           current_balance: balanceStats.current_balance,
+          available_balance: balanceStats.available_balance,
+          pending_balance: balanceStats.pending_balance,
         },
         tokenInfo: {
           issuedAt: payload.iat,
@@ -436,9 +447,10 @@ authRoutes.get(
     } catch (error) {
       throw createError(
         ERROR_CODES.INTERNAL_ERROR,
-        error instanceof Error ? error.message : "Unknown error",
+        "Unable to fetch user info",
         {
           error: "Unable to fetch user info",
+          message: error instanceof Error ? error.message : "Unknown error",
         },
       );
     }

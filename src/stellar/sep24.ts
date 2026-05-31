@@ -9,6 +9,7 @@ import {
 } from "../config/stellar";
 import { ERROR_CODES } from "../constants/errorCodes";
 import { createError } from "../middleware/errorHandler";
+import { enqueueSepWebhook } from "../services/stellar/webhooks";
 
 function isValidStellarPublicKey(key: string): boolean {
   try {
@@ -294,6 +295,7 @@ export const updateTransactionStatus = (
   const transaction = transactions.get(id);
   if (!transaction) return undefined;
 
+  const statusChanged = transaction.status !== status;
   transaction.status = status;
   transaction.updated_at = new Date().toISOString();
   if (message) transaction.message = message;
@@ -301,6 +303,13 @@ export const updateTransactionStatus = (
     transaction.completed_at = new Date().toISOString();
 
   transactions.set(id, transaction);
+
+  if (statusChanged && transaction.callback) {
+    enqueueSepWebhook(transaction.id, status, transaction.callback, transaction).catch((err) =>
+      console.error(`[sep24-webhook] Error enqueuing webhook:`, err)
+    );
+  }
+
   return transaction;
 };
 
@@ -325,6 +334,7 @@ export const processCallback = async (
   const transaction = transactions.get(transaction_id);
   if (!transaction) return null;
 
+  const statusChanged = transaction.status !== status;
   transaction.status = status;
   transaction.updated_at = new Date().toISOString();
   transaction.message = message;
@@ -343,6 +353,13 @@ export const processCallback = async (
   }
 
   transactions.set(transaction_id, transaction);
+
+  if (statusChanged && transaction.callback) {
+    enqueueSepWebhook(transaction.id, status, transaction.callback, transaction).catch((err) =>
+      console.error(`[sep24-webhook] Error enqueuing webhook:`, err)
+    );
+  }
+
   return transaction;
 };
 

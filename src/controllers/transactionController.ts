@@ -18,6 +18,7 @@ import {
 } from "../config/providers";
 import type { TransactionJobData } from "../queue/transactionQueue";
 import { amlService } from "../services/aml";
+import { generateFlaggedTransactionComplianceReport } from "../services/complianceReportService";
 import { twoFactorWithdrawalService } from "../services/twoFactorWithdrawalService";
 import {
   CancelTransactionResponse,
@@ -32,6 +33,7 @@ import {
 } from "../stellar/trustlines";
 import { getConfiguredPaymentAsset } from "../services/stellar/assetService";
 import { ERROR_CODES } from "../constants/errorCodes";
+import { travelRuleService } from "../compliance/travelRule";
 import { createError } from "../middleware/errorHandler";
 
 const IDEMPOTENCY_TTL_HOURS = Number(
@@ -178,7 +180,7 @@ export const getTransactionHistoryHandler = async (
     // Database Queries
     // If using cursor-based pagination, fetch limit+1 items to determine `hasMore`.
     let transactions = [] as any[];
-    let total = 0 as number | undefined;
+    let total: number | undefined;
 
     if (before || after) {
       const rows = await transactionModel.list(
@@ -220,30 +222,32 @@ export const getTransactionHistoryHandler = async (
       });
     }
 
-    // Legacy offset-based pagination
-    [transactions, total] = await Promise.all([
-      transactionModel.list(
-        limitNum,
-        offsetNum,
+    const rows = await transactionModel.list(
+      limitNum + 1,
+      offsetNum,
+      startDate as string | undefined,
+      endDate as string | undefined,
+      filters,
+    );
+    const hasMore = rows.length > limitNum;
+    transactions = rows.slice(0, limitNum);
+
+    if (offsetNum === 0) {
+      total = await transactionModel.count(
         startDate as string | undefined,
         endDate as string | undefined,
         filters,
-      ),
-      transactionModel.count(
-        startDate as string | undefined,
-        endDate as string | undefined,
-        filters,
-      ),
-    ] as const);
+      );
+    }
 
     // Response
     return res.json({
       data: transactions,
       pagination: {
-        total,
+        total: total ?? null,
         limit: limitNum,
         offset: offsetNum,
-        hasMore: offsetNum + limitNum < total,
+        hasMore,
       },
     });
   } catch (error) {
@@ -344,6 +348,25 @@ async function monitorTransactionForAML(
         ),
       ),
     ]);
+
+    try {
+      const { pdfUrl } = await generateFlaggedTransactionComplianceReport(
+        transaction,
+        result.alert,
+      );
+
+      await transactionModel.patchMetadata(transaction.id, {
+        complianceReport: {
+          pdfUrl,
+          generatedAt: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      console.error(
+        `Failed to generate flagged transaction compliance PDF for transaction ${transaction.id}:`,
+        error,
+      );
+    }
   } catch (error) {
     console.error(
       `AML monitoring failed for transaction ${transaction.id}:`,
@@ -714,8 +737,16 @@ export const getTransactionHandler = async (req: Request, res: Response) => {
 export const cancelTransactionHandler = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const userId = req.jwtUser?.userId;
 
-    const transaction = await transactionModel.findById(id);
+    if (!userId) {
+      return res.status(401).json({
+        error: "Unauthorized",
+        message: "Valid token required",
+      });
+    }
+
+    const transaction = await transactionModel.findById(id, userId);
     if (!transaction) {
       throw createError(ERROR_CODES.NOT_FOUND, null, {
         error: "Transaction not found",

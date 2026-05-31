@@ -14,7 +14,7 @@ import highThroughputService, {
 } from "../services/stellar/highThroughputService";
 import { createError } from "../middleware/errorHandler";
 import { ERROR_CODES } from "../constants/errorCodes";
-
+import { authenticateToken } from "../middleware/auth";
 interface CsvRow {
   amount: string;
   phoneNumber: string;
@@ -161,8 +161,8 @@ async function processJob(jobId: string, rows: CsvRow[]): Promise<void> {
           provider: row.provider.toUpperCase(),
           stellarAddress: row.stellarAddress,
           status: TransactionStatus.Pending,
-          tags: [],
-          ...(Object.keys(metadata).length > 0 && { metadata }),
+          tags: [jobId],
+          metadata: { batchId: jobId },
         });
         transactionId = transaction.id;
 
