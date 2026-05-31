@@ -38,6 +38,19 @@ const config: Config = {
     ],
   ],
 
+  plugins: [
+    [
+      '@docusaurus/plugin-ideal-image',
+      {
+        quality: 80,
+        max: 1200,
+        min: 320,
+        steps: 4,
+        disableInDev: false,
+      },
+    ],
+  ],
+
   themeConfig: {
     navbar: {
       title: 'Mobile Money API',

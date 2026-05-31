@@ -26,3 +26,36 @@ button.copyButton_node_modules-\@docusaurus-theme-classic-src-theme-CodeBlock-st
 pre code {
   position: relative;
 }
+
+/* ── Responsive image defaults ────────────────────────────── */
+/* All images inside docs/markdown are capped at container width */
+.markdown img,
+article img,
+[class*='markdown'] img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--ifm-global-radius);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+/* Ideal-image placeholder (while lazy-loading) */
+[class*='idealImagePlaceholder'] {
+  background-color: var(--ifm-background-surface-color, #f5f5f5);
+  border-radius: var(--ifm-global-radius);
+}
+
+/* Prevent layout shift by reserving space for images with known dimensions */
+img[width][height] {
+  aspect-ratio: attr(width) / attr(height);
+}
+
+/* Dark mode image adjustments */
+html[data-theme='dark'] article img {
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+  opacity: 0.92;
+  transition: opacity 0.2s ease-in-out;
+}
+html[data-theme='dark'] article img:hover {
+  opacity: 1;
+}

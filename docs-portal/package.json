@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "scripts": {
     "sync:openapi": "cp ../openapi.yaml ./static/openapi.yaml",
+    "optimize:images": "bash scripts/optimize-images.sh",
+    "prebuild": "npm run optimize:images",
     "start": "npm run sync:openapi && docusaurus start --port 3001",
     "build": "npm run sync:openapi && docusaurus build",
     "serve": "docusaurus serve",
@@ -11,6 +13,7 @@
   },
   "dependencies": {
     "@docusaurus/core": "3.9.2",
+    "@docusaurus/plugin-ideal-image": "3.9.2",
     "@docusaurus/preset-classic": "3.9.2",
     "@mdx-js/react": "^3.1.1",
     "clsx": "^2.1.1",
@@ -18,5 +21,9 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "redoc": "^2.5.1"
+  },
+  "devDependencies": {
+    "sharp": "^0.33.0",
+    "sharp-cli": "^5.0.0"
   }
 }
