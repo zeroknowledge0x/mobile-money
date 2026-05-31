@@ -788,7 +788,7 @@ export class AccountingService {
 
   /**
    * Ensure a Xero/QuickBooks contact exists for the given user and create a mapping.
-   * For Xero we attempt to find a contact by email and reuse it; otherwise create a new contact.
+   * For both providers we attempt to find a contact by email and reuse it; otherwise create a new contact.
    */
   async syncContactForUser(userId: string): Promise<void> {
     try {
@@ -808,84 +808,11 @@ export class AccountingService {
       const connections = await this.getUserConnections(userId);
 
       for (const connection of connections) {
-        if (connection.provider !== AccountingProvider.XERO) continue;
-
-        // Skip if mapping already exists for this tenant
-        const mapRes = await pool.query(
-          "SELECT external_id FROM accounting_contact_mappings WHERE user_id = $1 AND provider_type = 'xero' AND tenant_id = $2",
-          [userId, connection.tenantId],
-        );
-        if (mapRes.rows.length > 0) continue;
-
         try {
-          await this.ensureValidToken(connection.id);
-
-          // Fetch all contacts and try to match by email (API may support filtering; keep generic)
-          const resp = await axios.get("https://api.xero.com/api.xro/2.0/Contacts", {
-            headers: {
-              Authorization: `Bearer ${connection.accessToken}`,
-              "Xero-tenant-id": connection.tenantId || "",
-            },
-            timeout: 20000,
-          });
-
-          const contacts = resp.data?.Contacts || [];
-
-          let foundContact: any = null;
-
-          for (const c of contacts) {
-            // Xero contact email can be in EmailAddress or EmailAddresses array
-            const emails: string[] = [];
-            if (c.EmailAddress) emails.push(c.EmailAddress);
-            if (c.EmailAddresses && Array.isArray(c.EmailAddresses)) {
-              for (const e of c.EmailAddresses) {
-                if (e && (e.EmailAddress || e.email)) emails.push(e.EmailAddress || e.email);
-              }
-            }
-            if (emails.find((e) => e && e.toLowerCase() === email.toLowerCase())) {
-              foundContact = c;
-              break;
-            }
-          }
-
-          let externalId: string | undefined;
-
-          if (foundContact) {
-            externalId = foundContact.ContactID || foundContact.ContactId || foundContact.contactID;
-          } else {
-            // Create new contact in Xero
-            const name = (firstName || lastName) ? `${firstName || ''} ${lastName || ''}`.trim() : email;
-            const createBody = {
-              Contacts: [
-                {
-                  Name: name,
-                  FirstName: firstName,
-                  LastName: lastName,
-                  EmailAddress: email,
-                },
-              ],
-            };
-
-            const createResp = await axios.post("https://api.xero.com/api.xro/2.0/Contacts", createBody, {
-              headers: {
-                Authorization: `Bearer ${connection.accessToken}`,
-                "Xero-tenant-id": connection.tenantId || "",
-                "Content-Type": "application/json",
-              },
-              timeout: 20000,
-            });
-
-            const created = createResp.data?.Contacts && createResp.data.Contacts[0];
-            externalId = created?.ContactID || created?.ContactId;
-          }
-
-          if (externalId) {
-            await pool.query(
-              `INSERT INTO accounting_contact_mappings (id, user_id, provider_type, tenant_id, external_id, external_email)
-               VALUES (gen_random_uuid(), $1, 'xero', $2, $3, $4)`,
-              [userId, connection.tenantId, externalId, email],
-            );
-            logger.info(`[AccountingService] Mapped user ${userId} -> xero contact ${externalId} (tenant ${connection.tenantId})`);
+          if (connection.provider === AccountingProvider.XERO) {
+            await this.syncXeroContactForUser(userId, connection, email, firstName, lastName);
+          } else if (connection.provider === AccountingProvider.QUICKBOOKS) {
+            await this.syncQuickBooksCustomerForUser(userId, connection, email, firstName, lastName);
           }
         } catch (err) {
           logger.error(`[AccountingService] Failed to sync contact for user ${userId} on connection ${connection.id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -893,6 +820,245 @@ export class AccountingService {
       }
     } catch (err) {
       logger.error(`[AccountingService] syncContactForUser error for ${userId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
+   * Sync Xero contact for a user: find or create, then store mapping.
+   */
+  private async syncXeroContactForUser(
+    userId: string,
+    connection: AccountingConnection,
+    email: string,
+    firstName?: string | null,
+    lastName?: string | null,
+  ): Promise<void> {
+    // Skip if mapping already exists for this tenant
+    const mapRes = await pool.query(
+      "SELECT external_id FROM accounting_contact_mappings WHERE user_id = $1 AND provider_type = 'xero' AND tenant_id = $2",
+      [userId, connection.tenantId],
+    );
+    if (mapRes.rows.length > 0) return;
+
+    await this.ensureValidToken(connection.id);
+
+    // Fetch all contacts and try to match by email (API may support filtering; keep generic)
+    const resp = await axios.get("https://api.xero.com/api.xro/2.0/Contacts", {
+      headers: {
+        Authorization: `Bearer ${connection.accessToken}`,
+        "Xero-tenant-id": connection.tenantId || "",
+      },
+      timeout: 20000,
+    });
+
+    const contacts = resp.data?.Contacts || [];
+
+    let foundContact: any = null;
+
+    for (const c of contacts) {
+      // Xero contact email can be in EmailAddress or EmailAddresses array
+      const emails: string[] = [];
+      if (c.EmailAddress) emails.push(c.EmailAddress);
+      if (c.EmailAddresses && Array.isArray(c.EmailAddresses)) {
+        for (const e of c.EmailAddresses) {
+          if (e && (e.EmailAddress || e.email)) emails.push(e.EmailAddress || e.email);
+        }
+      }
+      if (emails.find((e) => e && e.toLowerCase() === email.toLowerCase())) {
+        foundContact = c;
+        break;
+      }
+    }
+
+    let externalId: string | undefined;
+
+    if (foundContact) {
+      externalId = foundContact.ContactID || foundContact.ContactId || foundContact.contactID;
+    } else {
+      // Create new contact in Xero
+      const name = (firstName || lastName) ? `${firstName || ''} ${lastName || ''}`.trim() : email;
+      const createBody = {
+        Contacts: [
+          {
+            Name: name,
+            FirstName: firstName,
+            LastName: lastName,
+            EmailAddress: email,
+          },
+        ],
+      };
+
+      const createResp = await axios.post("https://api.xero.com/api.xro/2.0/Contacts", createBody, {
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          "Xero-tenant-id": connection.tenantId || "",
+          "Content-Type": "application/json",
+        },
+        timeout: 20000,
+      });
+
+      const created = createResp.data?.Contacts && createResp.data.Contacts[0];
+      externalId = created?.ContactID || created?.ContactId;
+    }
+
+    if (externalId) {
+      await pool.query(
+        `INSERT INTO accounting_contact_mappings (id, user_id, provider_type, tenant_id, external_id, external_email)
+         VALUES (gen_random_uuid(), $1, 'xero', $2, $3, $4)`,
+        [userId, connection.tenantId, externalId, email],
+      );
+      logger.info(`[AccountingService] Mapped user ${userId} -> xero contact ${externalId} (tenant ${connection.tenantId})`);
+    }
+  }
+
+  /**
+   * Sync QuickBooks customer for a user: find or create, then store mapping.
+   */
+  private async syncQuickBooksCustomerForUser(
+    userId: string,
+    connection: AccountingConnection,
+    email: string,
+    firstName?: string | null,
+    lastName?: string | null,
+  ): Promise<void> {
+    // Skip if mapping already exists for this realm (QuickBooks company)
+    const mapRes = await pool.query(
+      "SELECT external_id FROM accounting_contact_mappings WHERE user_id = $1 AND provider_type = 'quickbooks' AND tenant_id = $2",
+      [userId, connection.realmId],
+    );
+    if (mapRes.rows.length > 0) return;
+
+    await this.ensureValidToken(connection.id);
+
+    // Query QuickBooks for customers with matching email
+    // Use a QBO query to find customers by email
+    const query = `SELECT * FROM Customer WHERE BillAddr.Email = '${email}' MAXRESULTS 10`;
+    const encodedQuery = encodeURIComponent(query);
+
+    try {
+      const resp = await axios.get(
+        `https://quickbooks.api.intuit.com/v3/company/${connection.realmId}/query?query=${encodedQuery}`,
+        {
+          headers: {
+            Authorization: `Bearer ${connection.accessToken}`,
+            Accept: "application/json",
+          },
+          timeout: 20000,
+        },
+      );
+
+      const customers = resp.data?.QueryResponse?.Customer || [];
+      let foundCustomer: any = null;
+
+      // Look for email match in returned customers
+      if (customers.length > 0) {
+        for (const c of customers) {
+          const customerEmail = c.BillAddr?.Email || c.ShipAddr?.Email;
+          if (customerEmail && customerEmail.toLowerCase() === email.toLowerCase()) {
+            foundCustomer = c;
+            break;
+          }
+        }
+      }
+
+      let customerId: string | undefined;
+
+      if (foundCustomer) {
+        customerId = foundCustomer.Id;
+      } else {
+        // Create new customer in QuickBooks
+        const displayName = (firstName || lastName) ? `${firstName || ''} ${lastName || ''}`.trim() : email.split("@")[0];
+
+        const createBody = {
+          DisplayName: displayName,
+          PrimaryEmailAddr: {
+            Address: email,
+          },
+          BillAddr: {
+            City: "",
+            Country: "",
+            Line1: "",
+            PostalCode: "",
+            Qty: 1,
+          },
+          ...(firstName && { GivenName: firstName }),
+          ...(lastName && { FamilyName: lastName }),
+        };
+
+        const createResp = await axios.post(
+          `https://quickbooks.api.intuit.com/v3/company/${connection.realmId}/customer`,
+          createBody,
+          {
+            headers: {
+              Authorization: `Bearer ${connection.accessToken}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 20000,
+          },
+        );
+
+        const created = createResp.data?.Customer;
+        customerId = created?.Id;
+      }
+
+      if (customerId) {
+        await pool.query(
+          `INSERT INTO accounting_contact_mappings (id, user_id, provider_type, tenant_id, external_id, external_email)
+           VALUES (gen_random_uuid(), $1, 'quickbooks', $2, $3, $4)`,
+          [userId, connection.realmId, customerId, email],
+        );
+        logger.info(`[AccountingService] Mapped user ${userId} -> quickbooks customer ${customerId} (realm ${connection.realmId})`);
+      }
+    } catch (err) {
+      // If query fails (e.g., no customer with that email), proceed to create
+      if ((err as any).response?.status === 400 || (err as any).response?.status === 401) {
+        logger.warn(`[AccountingService] QB customer query failed for user ${userId}: ${(err as Error).message}. Attempting create.`);
+
+        // Attempt to create customer
+        const displayName = (firstName || lastName) ? `${firstName || ''} ${lastName || ''}`.trim() : email.split("@")[0];
+
+        const createBody = {
+          DisplayName: displayName,
+          PrimaryEmailAddr: {
+            Address: email,
+          },
+          BillAddr: {
+            City: "",
+            Country: "",
+            Line1: "",
+            PostalCode: "",
+            Qty: 1,
+          },
+          ...(firstName && { GivenName: firstName }),
+          ...(lastName && { FamilyName: lastName }),
+        };
+
+        const createResp = await axios.post(
+          `https://quickbooks.api.intuit.com/v3/company/${connection.realmId}/customer`,
+          createBody,
+          {
+            headers: {
+              Authorization: `Bearer ${connection.accessToken}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 20000,
+          },
+        );
+
+        const created = createResp.data?.Customer;
+        const customerId = created?.Id;
+
+        if (customerId) {
+          await pool.query(
+            `INSERT INTO accounting_contact_mappings (id, user_id, provider_type, tenant_id, external_id, external_email)
+             VALUES (gen_random_uuid(), $1, 'quickbooks', $2, $3, $4)`,
+            [userId, connection.realmId, customerId, email],
+          );
+          logger.info(`[AccountingService] Created and mapped user ${userId} -> quickbooks customer ${customerId} (realm ${connection.realmId})`);
+        }
+      } else {
+        throw err;
+      }
     }
   }
 
