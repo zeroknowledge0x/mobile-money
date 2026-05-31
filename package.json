@@ -58,7 +58,9 @@
     "test:load:ingestion-10k": "k6 run --vus-max 12000 -e SCENARIO=ingestion_10k tests/load/api.js",
     "test:load:spike-10k": "k6 run --vus-max 12000 -e SCENARIO=spike_10k tests/load/api.js",
     "test:load:traffic-spike": "k6 run --vus-max 6000 -e SCENARIO=traffic_spike tests/load/api.js",
-    "test:load:spike-5k": "k6 run --vus-max 6000 -e SCENARIO=spike_5k tests/load/api.js"
+    "test:load:spike-5k": "k6 run --vus-max 6000 -e SCENARIO=spike_5k tests/load/api.js",
+    "test:worker": "npm --prefix workers/well-known-cache run test",
+    "worker:dev": "npm --prefix workers/well-known-cache run dev"
   },
   "lint-staged": {
     "*.{ts,tsx}": [

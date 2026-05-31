@@ -1,0 +1,18 @@
+{
+  "name": "well-known-cache-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.20250422.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.1.0",
+    "wrangler": "^4.15.0"
+  }
+}
