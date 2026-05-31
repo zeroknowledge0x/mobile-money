@@ -180,7 +180,54 @@ app.post<{ Body: unknown }>("/ingest", async (req, reply) => {
 });
 
 app.get("/health", async (_req, reply) => {
-  return reply.status(200).send({ status: "ok", runtime: "node" });
+  const result: any = { status: "ok", runtime: "node", checks: {} };
+
+  // Redis check
+  if (REDIS_ENABLED) {
+    if (!redis) {
+      result.status = "error";
+      result.checks.redis = { healthy: false, detail: "not initialized" };
+      return reply.status(503).send(result);
+    }
+    try {
+      const pong = await redis.ping();
+      const healthy = pong === "PONG" || pong === "OK";
+      result.checks.redis = { healthy, detail: pong };
+      if (!healthy) {
+        result.status = "error";
+        return reply.status(503).send(result);
+      }
+    } catch (err: any) {
+      result.status = "error";
+      result.checks.redis = { healthy: false, detail: err?.message || String(err) };
+      return reply.status(503).send(result);
+    }
+  }
+
+  // NATS check
+  if (NATS_ENABLED) {
+    if (!nats) {
+      result.status = "error";
+      result.checks.nats = { healthy: false, detail: "not initialized" };
+      return reply.status(503).send(result);
+    }
+    try {
+      // Prefer using isClosed() if available
+      const isClosed = (nats as any).isClosed?.();
+      const healthy = typeof isClosed === "boolean" ? !isClosed : true;
+      result.checks.nats = { healthy, detail: isClosed === true ? "closed" : "connected" };
+      if (!healthy) {
+        result.status = "error";
+        return reply.status(503).send(result);
+      }
+    } catch (err: any) {
+      result.status = "error";
+      result.checks.nats = { healthy: false, detail: err?.message || String(err) };
+      return reply.status(503).send(result);
+    }
+  }
+
+  return reply.status(200).send(result);
 });
 
 app.get("/metrics", async (_req, reply) => {

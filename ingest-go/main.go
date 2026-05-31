@@ -290,6 +290,29 @@ func handleIngest(ctx *fasthttp.RequestCtx) {
 }
 
 func handleHealth(ctx *fasthttp.RequestCtx) {
+	// Check Redis
+	if redisEnabled {
+		if rdb == nil {
+			ctx.SetStatusCode(fasthttp.StatusServiceUnavailable)
+			ctx.SetBodyString(`{"status":"error","runtime":"go","detail":"redis not initialized"}`)
+			return
+		}
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			ctx.SetStatusCode(fasthttp.StatusServiceUnavailable)
+			ctx.SetBodyString(fmt.Sprintf(`{"status":"error","runtime":"go","detail":"redis ping failed: %v"}`, err))
+			return
+		}
+	}
+
+	// Check NATS
+	if natsEnabled {
+		if nc == nil || !nc.IsConnected() {
+			ctx.SetStatusCode(fasthttp.StatusServiceUnavailable)
+			ctx.SetBodyString(`{"status":"error","runtime":"go","detail":"nats not connected"}`)
+			return
+		}
+	}
+
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetBodyString(`{"status":"ok","runtime":"go"}`)
 }
