@@ -7,6 +7,8 @@ import axios, {
 
 import logger from "../../../utils/logger";
 import { maskPII } from "../../../utils/masking";
+import { resolveAirtelRegion, validateCountryCurrency, AIRTEL_REGION_MAP } from "./airtel-regions";
+import type { AirtelRegion } from "./airtel-regions";
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -148,6 +150,34 @@ export class AirtelService {
   // =========================================================================
 
   private buildConfig(options: AirtelProviderOptions): AirtelProviderConfig {
+    const country = (
+      options.country ??
+      process.env.AIRTEL_COUNTRY ??
+      "NG"
+    ).toUpperCase();
+
+    // Auto-resolve currency from country if not explicitly provided,
+    // or use the provided value.  This makes East-Africa configs simpler:
+    // just set AIRTEL_COUNTRY=TZ and the currency defaults to TZS.
+    const explicitCurrency =
+      options.currency ?? process.env.AIRTEL_CURRENCY;
+    let currency: string;
+
+    if (explicitCurrency) {
+      currency = explicitCurrency.toUpperCase();
+    } else {
+      const region = resolveAirtelRegion(country);
+      currency =
+        region ? AIRTEL_REGION_MAP[region].currencies[0] : "NGN";
+    }
+
+    // Warn on mismatched country/currency pairs (non-fatal for backwards
+    // compat, but surfaces misconfiguration early).
+    const mismatch = validateCountryCurrency(country, currency);
+    if (mismatch) {
+      logger.warn({ country, currency }, `Airtel config: ${mismatch}`);
+    }
+
     return {
       mode: options.mode ?? (process.env.AIRTEL_MODE as AirtelMode | undefined),
       webBaseUrl:
@@ -191,8 +221,8 @@ export class AirtelService {
       csrfField: options.csrfField ?? process.env.AIRTEL_CSRF_FIELD ?? "_csrf",
       apiKey: options.apiKey ?? process.env.AIRTEL_API_KEY ?? "",
       apiSecret: options.apiSecret ?? process.env.AIRTEL_API_SECRET ?? "",
-      country: options.country ?? process.env.AIRTEL_COUNTRY ?? "NG",
-      currency: options.currency ?? process.env.AIRTEL_CURRENCY ?? "NGN",
+      country,
+      currency,
       sessionStorePath:
         options.sessionStorePath ?? process.env.AIRTEL_SESSION_STORE_PATH,
       sessionTtlMs: Number(
@@ -1212,3 +1242,7 @@ export class AirtelService {
     await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
   }
 }
+
+// Re-export region utilities from dedicated module
+export { resolveAirtelRegion, validateCountryCurrency, AIRTEL_REGION_MAP };
+export type { AirtelRegion };

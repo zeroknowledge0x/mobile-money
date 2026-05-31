@@ -1,4 +1,5 @@
 import { getConfigValue } from './appConfig';
+import { resolveAirtelRegion, AIRTEL_REGION_MAP } from '../services/mobilemoney/providers/airtel-regions';
 
 export enum MobileMoneyProvider {
   MTN = "mtn",
@@ -64,21 +65,43 @@ export function validateProviderLimits(
 ): { valid: boolean; error?: string } {
   const limits = getProviderLimits(provider);
 
+  // Use region-aware currency label for Airtel
+  const currencyLabel = provider === MobileMoneyProvider.AIRTEL
+    ? getAirtelCurrencyLabel()
+    : "XAF";
+
   if (amount < limits.minAmount) {
     return {
       valid: false,
-      error: `Amount ${amount} XAF is below the minimum of ${limits.minAmount} XAF for ${provider.toUpperCase()}. Allowed range: ${limits.minAmount} - ${limits.maxAmount} XAF`,
+      error: `Amount ${amount} ${currencyLabel} is below the minimum of ${limits.minAmount} ${currencyLabel} for ${provider.toUpperCase()}. Allowed range: ${limits.minAmount} - ${limits.maxAmount} ${currencyLabel}`,
     };
   }
 
   if (amount > limits.maxAmount) {
     return {
       valid: false,
-      error: `Amount ${amount} XAF exceeds the maximum of ${limits.maxAmount} XAF for ${provider.toUpperCase()}. Allowed range: ${limits.minAmount} - ${limits.maxAmount} XAF`,
+      error: `Amount ${amount} ${currencyLabel} exceeds the maximum of ${limits.maxAmount} ${currencyLabel} for ${provider.toUpperCase()}. Allowed range: ${limits.minAmount} - ${limits.maxAmount} ${currencyLabel}`,
     };
   }
 
   return { valid: true };
+}
+
+/**
+ * Resolve the currency label for Airtel based on configured country.
+ * Falls back to XAF for backwards compatibility.
+ */
+function getAirtelCurrencyLabel(): string {
+  try {
+    const country = process.env.AIRTEL_COUNTRY ?? "CM";
+    const region = resolveAirtelRegion(country);
+    if (region) {
+      return AIRTEL_REGION_MAP[region].currencies[0];
+    }
+  } catch {
+    /* ignore — fallback to XAF */
+  }
+  return "XAF";
 }
 
 function validateLimitsConfig(): void {
