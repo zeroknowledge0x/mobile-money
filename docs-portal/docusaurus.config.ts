@@ -29,7 +29,10 @@ const config: Config = {
     [
       'classic',
       {
-        docs: false,
+        docs: {
+          sidebarPath: './sidebars.ts',
+          editUrl: 'https://github.com/sublime247/mobile-money/tree/main/docs-portal/',
+        },
         blog: false,
         theme: {
           customCss: './src/css/custom.css',
@@ -43,7 +46,8 @@ const config: Config = {
       title: 'Mobile Money API',
       items: [
         { to: '/', label: 'Overview', position: 'left' },
-        { to: '/api', label: 'Reference', position: 'left' },
+        { to: '/docs/getting-started/overview', label: 'Docs', position: 'left' },
+        { to: '/api', label: 'API Reference', position: 'left' },
         {
           href: 'https://github.com/sublime247/mobile-money',
           label: 'GitHub',
@@ -56,7 +60,17 @@ const config: Config = {
       links: [
         {
           title: 'Docs',
-          items: [{ label: 'API Reference', to: '/api' }],
+          items: [
+            { label: 'Getting Started', to: '/docs/getting-started/overview' },
+            { label: 'API Reference', to: '/api' },
+          ],
+        },
+        {
+          title: 'Community',
+          items: [
+            { label: 'GitHub', href: 'https://github.com/sublime247/mobile-money' },
+            { label: 'Contributing', to: '/docs/getting-started/contributing' },
+          ],
         },
       ],
       copyright: `Copyright © ${new Date().getFullYear()} Mobile Money`,
