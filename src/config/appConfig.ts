@@ -116,6 +116,34 @@ export const configSchema = convict({
     },
   },
 
+  // Provider Failover Configuration
+  providerFailover: {
+    enabled: {
+      doc: "Whether automated provider failover is enabled",
+      format: Boolean,
+      default: false,
+      env: "PROVIDER_FAILOVER_ENABLED",
+    },
+    map: {
+      doc: 'JSON mapping of provider failover chains, e.g. \'{"vodacom":["mtn","airtel"],"mtn":["airtel","orange"]}\'',
+      format: String,
+      default: "",
+      env: "PROVIDER_FAILOVER_MAP",
+    },
+    minSuccessRate: {
+      doc: "Minimum success rate (0-1) below which a provider is considered unhealthy for failover",
+      format: "number",
+      default: 0.7,
+      env: "PROVIDER_FAILOVER_MIN_SUCCESS_RATE",
+    },
+    maxAvgDurationMs: {
+      doc: "Maximum average response time (ms) before a provider is deprioritized in failover chain",
+      format: "nat",
+      default: 10000,
+      env: "PROVIDER_FAILOVER_MAX_DURATION_MS",
+    },
+  },
+
   // Transaction Limits by KYC Level
   transactionLimits: {
     unverified: {

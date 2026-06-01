@@ -16,6 +16,7 @@ import {
   RATE_LIMIT_CONFIG,
 } from "../middleware/rateLimit";
 import { MobileMoneyService } from "../services/mobilemoney/mobileMoneyService";
+import { getFailoverSummary } from "../services/mobilemoney/providerFailoverService";
 import { getQueueStats } from "../queue/transactionQueue";
 import { redisClient } from "../config/redis";
 import { checkReplicaHealth, pool } from "../config/database";
@@ -1954,6 +1955,34 @@ router.get(
         {
           status: "error",
           message: "Failed to retrieve health data",
+          timestamp: new Date().toISOString(),
+        },
+      );
+    }
+  },
+);
+
+// GET /api/admin/providers/failover - Get failover chain configuration and health scores
+router.get(
+  "/providers/failover",
+  requireAdmin,
+  logAdminAction("GET_PROVIDER_FAILOVER"),
+  async (_req: Request, res: Response) => {
+    try {
+      const summary = await getFailoverSummary();
+      res.json({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        ...summary,
+      });
+    } catch (err) {
+      console.error("Failover summary error:", err);
+      throw createError(
+        ERROR_CODES.INTERNAL_ERROR,
+        "Failed to retrieve failover summary",
+        {
+          status: "error",
+          message: "Failed to retrieve failover summary",
           timestamp: new Date().toISOString(),
         },
       );
