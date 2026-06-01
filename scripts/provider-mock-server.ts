@@ -7,7 +7,7 @@ import mockServerConfig from "../src/config/mockServer";
 type MockScenario = "success" | "failed" | "pending";
 
 interface StoredTransaction {
-  provider: "mtn" | "airtel";
+  provider: "mtn" | "airtel" | "vodacom" | "tigo";
   scenario: MockScenario;
   createdAt: string;
 }
@@ -178,13 +178,6 @@ export function createProviderMockApp() {
   const transactions = new Map<string, StoredTransaction>();
 
   app.use(express.json());
-
-  app.get("/health", (_req: Request, res: Response) => {
-    res.json({
-      status: "ok",
-      providers: ["mtn", "airtel"],
-    });
-  });
 
   app.post(
     "/mtn/collection/token/",
@@ -445,6 +438,278 @@ export function createProviderMockApp() {
     },
   );
 
+  // ---------------------------------------------------------------------------
+  // Vodacom (M-Pesa) mock endpoints
+  // ---------------------------------------------------------------------------
+
+  const VODACOM_MARKET = process.env.VODACOM_MARKET || "vodacomTZN";
+
+  app.get(
+    `/${VODACOM_MARKET}/getSession/`,
+    async (req: Request<unknown, unknown, MockRequestBody>, res: Response) => {
+      await applyDelay(req);
+
+      const scenario = getScenario(req);
+      if (scenario === "failed") {
+        return res.status(401).json({
+          output_ResponseCode: "INS-6",
+          output_ResponseDesc: "Mock session failure",
+        });
+      }
+
+      return res.json({
+        output_SessionID: `mock-vodacom-session-${randomUUID()}`,
+        output_ResponseCode: "INS-0",
+        output_ResponseDesc: "Service provider request successful",
+      });
+    },
+  );
+
+  app.post(
+    `/${VODACOM_MARKET}/c2bPayment/singleStage/`,
+    async (req: Request<unknown, unknown, MockRequestBody>, res: Response) => {
+      await applyDelay(req);
+
+      const scenario = getScenario(req);
+      const referenceId = getReferenceId(req, "vodacom-c2b");
+
+      transactions.set(referenceId, {
+        provider: "vodacom",
+        scenario,
+        createdAt: new Date().toISOString(),
+      });
+
+      if (scenario === "failed") {
+        return res.status(400).json({
+          output_ResponseCode: "INS-6",
+          output_ResponseDesc: "Mock Vodacom C2B payment failure",
+          output_TransactionID: referenceId,
+        });
+      }
+
+      return res.json({
+        output_ResponseCode: "INS-0",
+        output_ResponseDesc: "Request processed successfully",
+        output_TransactionID: referenceId,
+        output_ConversationID: `conv-${randomUUID()}`,
+        output_ThirdPartyReference: referenceId,
+      });
+    },
+  );
+
+  app.post(
+    `/${VODACOM_MARKET}/b2cPayment/singleStage/`,
+    async (req: Request<unknown, unknown, MockRequestBody>, res: Response) => {
+      await applyDelay(req);
+
+      const scenario = getScenario(req);
+      const referenceId = getReferenceId(req, "vodacom-b2c");
+
+      transactions.set(referenceId, {
+        provider: "vodacom",
+        scenario,
+        createdAt: new Date().toISOString(),
+      });
+
+      if (scenario === "failed") {
+        return res.status(400).json({
+          output_ResponseCode: "INS-6",
+          output_ResponseDesc: "Mock Vodacom B2C payment failure",
+          output_TransactionID: referenceId,
+        });
+      }
+
+      return res.json({
+        output_ResponseCode: "INS-0",
+        output_ResponseDesc: "Request processed successfully",
+        output_TransactionID: referenceId,
+        output_ConversationID: `conv-${randomUUID()}`,
+        output_ThirdPartyReference: referenceId,
+      });
+    },
+  );
+
+  app.get(
+    `/${VODACOM_MARKET}/queryTransactionStatus/`,
+    async (req: Request<unknown, unknown, MockRequestBody>, res: Response) => {
+      await applyDelay(req);
+
+      const referenceId = String(req.query.transactionId || "");
+      const stored = transactions.get(referenceId);
+      const scenario = stored?.scenario || getScenario(req);
+
+      return res.json({
+        output_ResponseCode: scenario === "failed" ? "INS-6" : "INS-0",
+        output_ResponseDesc:
+          scenario === "failed" ? "Transaction failed" : "Transaction successful",
+        output_TransactionID: referenceId,
+        output_ConversationID: `conv-${randomUUID()}`,
+        output_ThirdPartyReference: referenceId,
+      });
+    },
+  );
+
+  app.get(
+    `/${VODACOM_MARKET}/checkBalance/`,
+    async (req: Request<unknown, unknown, MockRequestBody>, res: Response) => {
+      await applyDelay(req);
+
+      const scenario = getScenario(req);
+      if (scenario === "failed") {
+        return res.status(503).json({
+          output_ResponseCode: "INS-6",
+          output_ResponseDesc: "Mock Vodacom balance service unavailable",
+        });
+      }
+
+      return res.json({
+        output_ResponseCode: "INS-0",
+        output_ResponseDesc: "Service provider request successful",
+        output_Balance: DEFAULT_BALANCE,
+        output_Currency: process.env.VODACOM_CURRENCY || "TZS",
+      });
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // Tigo mock endpoints
+  // ---------------------------------------------------------------------------
+
+  app.post(
+    "/tigo/oauth/token",
+    async (req: Request<unknown, unknown, MockRequestBody>, res: Response) => {
+      await applyDelay(req);
+
+      const scenario = getScenario(req);
+      if (scenario === "failed") {
+        return res.status(401).json({
+          error: "invalid_client",
+          error_description: "Mock Tigo auth failure",
+        });
+      }
+
+      return res.json({
+        access_token: `mock-tigo-access-token-${randomUUID()}`,
+        token_type: "Bearer",
+        expires_in: 3600,
+      });
+    },
+  );
+
+  app.post(
+    "/tigo/payments/collect",
+    async (req: Request<unknown, unknown, MockRequestBody>, res: Response) => {
+      await applyDelay(req);
+
+      const scenario = getScenario(req);
+      const referenceId = getReferenceId(req, "tigo-collect");
+
+      transactions.set(referenceId, {
+        provider: "tigo",
+        scenario,
+        createdAt: new Date().toISOString(),
+      });
+
+      if (scenario === "failed") {
+        return res.status(400).json({
+          status: "FAILED",
+          referenceId,
+          message: "Mock Tigo collect payment failure",
+        });
+      }
+
+      return res.status(200).json({
+        status: scenario === "pending" ? "PENDING" : "SUCCESS",
+        referenceId,
+        message: "Mock Tigo collect payment accepted",
+        providerReference: `tigo-ref-${randomUUID()}`,
+      });
+    },
+  );
+
+  app.post(
+    "/tigo/payments/disburse",
+    async (req: Request<unknown, unknown, MockRequestBody>, res: Response) => {
+      await applyDelay(req);
+
+      const scenario = getScenario(req);
+      const referenceId = getReferenceId(req, "tigo-disburse");
+
+      transactions.set(referenceId, {
+        provider: "tigo",
+        scenario,
+        createdAt: new Date().toISOString(),
+      });
+
+      if (scenario === "failed") {
+        return res.status(400).json({
+          status: "FAILED",
+          referenceId,
+          message: "Mock Tigo disburse payment failure",
+        });
+      }
+
+      return res.status(200).json({
+        status: scenario === "pending" ? "PENDING" : "SUCCESS",
+        referenceId,
+        message: "Mock Tigo disburse payment accepted",
+        providerReference: `tigo-ref-${randomUUID()}`,
+      });
+    },
+  );
+
+  app.get(
+    "/tigo/payments/status/:referenceId",
+    async (
+      req: Request<{ referenceId: string }, unknown, MockRequestBody>,
+      res: Response,
+    ) => {
+      await applyDelay(req);
+
+      const stored = transactions.get(req.params.referenceId);
+      const scenario = stored?.scenario || getScenario(req);
+
+      return res.json({
+        referenceId: req.params.referenceId,
+        status:
+          scenario === "failed"
+            ? "FAILED"
+            : scenario === "pending"
+              ? "PENDING"
+              : "SUCCESS",
+        providerReference: `tigo-ref-${randomUUID()}`,
+      });
+    },
+  );
+
+  app.get(
+    "/tigo/account/balance",
+    async (req: Request<unknown, unknown, MockRequestBody>, res: Response) => {
+      await applyDelay(req);
+
+      const scenario = getScenario(req);
+      if (scenario === "failed") {
+        return res.status(503).json({
+          error: "BALANCE_UNAVAILABLE",
+          message: "Mock Tigo balance service unavailable",
+        });
+      }
+
+      return res.json({
+        availableBalance: DEFAULT_BALANCE,
+        currency: process.env.TIGO_CURRENCY || "TZS",
+      });
+    },
+  );
+
+  // Update health check to include all providers
+  app.get("/health", (_req: Request, res: Response) => {
+    res.json({
+      status: "ok",
+      providers: ["mtn", "airtel", "vodacom", "tigo"],
+    });
+  });
+
   return app;
 }
 
@@ -453,7 +718,7 @@ export function startProviderMockServer(port = DEFAULT_PORT): Server {
 
   return app.listen(port, () => {
     console.info(
-      `[provider-mock] listening on port ${port} for MTN and Airtel mock traffic`,
+      `[provider-mock] listening on port ${port} for MTN, Airtel, Vodacom, and Tigo mock traffic`,
     );
   });
 }

@@ -68,4 +68,103 @@ describe("validateNetworkMiddleware", () => {
       }),
     );
   });
+
+  it("should resolve VODACOM for Tanzania +25574 prefix", () => {
+    req.body = {
+      phoneNumber: "+255741234567",
+    };
+
+    validateNetworkMiddleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.body as any).resolvedNetwork).toBe("VODACOM");
+  });
+
+  it("should resolve VODACOM for Tanzania +25575 prefix", () => {
+    req.body = {
+      phoneNumber: "+255751234567",
+    };
+
+    validateNetworkMiddleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.body as any).resolvedNetwork).toBe("VODACOM");
+  });
+
+  it("should resolve VODACOM for Tanzania +25576 prefix", () => {
+    req.body = {
+      phoneNumber: "+255761234567",
+    };
+
+    validateNetworkMiddleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.body as any).resolvedNetwork).toBe("VODACOM");
+  });
+
+  it("should resolve TIGO for Tanzania +25565 prefix", () => {
+    req.body = {
+      phoneNumber: "+255651234567",
+    };
+
+    validateNetworkMiddleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.body as any).resolvedNetwork).toBe("TIGO");
+  });
+
+  it("should resolve TIGO for Tanzania +25566 prefix", () => {
+    req.body = {
+      phoneNumber: "+255661234567",
+    };
+
+    validateNetworkMiddleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.body as any).resolvedNetwork).toBe("TIGO");
+  });
+
+  it("should resolve TIGO for Tanzania +25567 prefix", () => {
+    req.body = {
+      phoneNumber: "+255671234567",
+    };
+
+    validateNetworkMiddleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.body as any).resolvedNetwork).toBe("TIGO");
+  });
+
+  it("should resolve TIGO for Tanzania +25571 prefix", () => {
+    req.body = {
+      phoneNumber: "+255711234567",
+    };
+
+    validateNetworkMiddleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.body as any).resolvedNetwork).toBe("TIGO");
+  });
+
+  it("should resolve TIGO for local Tanzania 065 prefix", () => {
+    req.body = {
+      phoneNumber: "0651234567",
+    };
+
+    validateNetworkMiddleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.body as any).resolvedNetwork).toBe("TIGO");
+  });
+
+  it("should resolve VODACOM for local Tanzania 074 prefix", () => {
+    req.body = {
+      phoneNumber: "0741234567",
+    };
+
+    validateNetworkMiddleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.body as any).resolvedNetwork).toBe("VODACOM");
+  });
 });

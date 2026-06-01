@@ -10,7 +10,7 @@ describe("provider mock server", () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
       status: "ok",
-      providers: ["mtn", "airtel"],
+      providers: ["mtn", "airtel", "vodacom", "tigo"],
     });
   });
 
@@ -75,5 +75,68 @@ describe("provider mock server", () => {
       success: false,
       code: "BALANCE_UNAVAILABLE",
     });
+  });
+
+  it("stores Vodacom C2B transactions and returns matching status", async () => {
+    const market = process.env.VODACOM_MARKET || "vodacomTZN";
+
+    const tokenResponse = await request(app).get(`/${market}/getSession/`);
+    expect(tokenResponse.status).toBe(200);
+    expect(tokenResponse.body.output_ResponseCode).toBe("INS-0");
+
+    const createResponse = await request(app)
+      .post(`/${market}/c2bPayment/singleStage/`)
+      .send({
+        externalId: "vodacom-c2b-123",
+        scenario: "success",
+      });
+
+    expect(createResponse.status).toBe(200);
+    expect(createResponse.body.output_ResponseCode).toBe("INS-0");
+
+    const statusResponse = await request(app).get(
+      `/${market}/queryTransactionStatus/?transactionId=vodacom-c2b-123`,
+    );
+
+    expect(statusResponse.status).toBe(200);
+    expect(statusResponse.body.output_ResponseCode).toBe("INS-0");
+  });
+
+  it("returns Vodacom balance", async () => {
+    const market = process.env.VODACOM_MARKET || "vodacomTZN";
+
+    const response = await request(app).get(`/${market}/checkBalance/`);
+    expect(response.status).toBe(200);
+    expect(response.body.output_ResponseCode).toBe("INS-0");
+    expect(response.body.output_Balance).toBeDefined();
+  });
+
+  it("stores Tigo collect transactions and returns matching status", async () => {
+    const tokenResponse = await request(app).post("/tigo/oauth/token");
+    expect(tokenResponse.status).toBe(200);
+    expect(tokenResponse.body.access_token).toBeDefined();
+
+    const createResponse = await request(app)
+      .post("/tigo/payments/collect")
+      .send({
+        externalId: "tigo-collect-123",
+        scenario: "success",
+      });
+
+    expect(createResponse.status).toBe(200);
+    expect(createResponse.body.status).toBe("SUCCESS");
+
+    const statusResponse = await request(app).get(
+      "/tigo/payments/status/tigo-collect-123",
+    );
+
+    expect(statusResponse.status).toBe(200);
+    expect(statusResponse.body.status).toBe("SUCCESS");
+  });
+
+  it("returns Tigo balance", async () => {
+    const response = await request(app).get("/tigo/account/balance");
+    expect(response.status).toBe(200);
+    expect(response.body.availableBalance).toBeDefined();
   });
 });
