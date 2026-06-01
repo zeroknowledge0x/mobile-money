@@ -97,7 +97,7 @@ export const validateNetworkMiddleware = (
           {
             path: "destinationPhone or phoneNumber",
             message:
-              "Unsupported destination network prefix. Supported networks are MTN, AIRTEL, and ORANGE.",
+              "Unsupported destination network prefix. Supported networks are MTN, AIRTEL, ORANGE, TIGO, and VODACOM.",
           },
         ],
       });
