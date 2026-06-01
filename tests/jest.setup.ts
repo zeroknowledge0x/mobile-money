@@ -11,8 +11,9 @@ process.env.GEOLOCATION_API_KEY ??= "";
 // Global mock for axios to prevent real HTTP requests to sanction lists
 jest.mock("axios", () => {
   const originalAxios = jest.requireActual("axios") as any;
-  return {
+  const mockAxios = {
     ...originalAxios,
+    create: jest.fn((...args: any[]) => originalAxios.create(...args)),
     get: jest.fn((url: string, config?: any) => {
       if (url === "https://scsanctions.un.org/resources/xml/en/consolidated.xml") {
         return Promise.resolve({
@@ -51,4 +52,5 @@ jest.mock("axios", () => {
       return originalAxios.get(url, config);
     }),
   };
+  return mockAxios;
 });

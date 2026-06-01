@@ -7,6 +7,7 @@ import axios, {
 
 import logger from "../../../utils/logger";
 import { maskPII } from "../../../utils/masking";
+import { formatPhoneForProvider } from "../../../utils/phoneUtils";
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -303,8 +304,9 @@ export class AirtelService {
 
   async sendPayout(phoneNumber: string, amount: string, requestId?: string) {
     const log = requestId ? logger.child({ requestId }) : logger;
+    const formattedPhoneNumber = formatPhoneForProvider(phoneNumber, "airtel");
     log.info(
-      maskPII({ phoneNumber, amount, mode: this.mode }),
+      maskPII({ phoneNumber: formattedPhoneNumber, amount, mode: this.mode }),
       "Airtel: Sending payout",
     );
     const startTime = Date.now();
@@ -314,17 +316,17 @@ export class AirtelService {
 
       const response =
         this.mode === "proxy"
-          ? await this.executeViaProxy("payout", phoneNumber, amount, reference)
+          ? await this.executeViaProxy("payout", formattedPhoneNumber, amount, reference)
           : this.mode === "web"
             ? await this.executeViaWebSession(
                 "payout",
-                phoneNumber,
+                formattedPhoneNumber,
                 amount,
                 reference,
               )
             : await this.executeViaDirect(
                 "payout",
-                phoneNumber,
+                formattedPhoneNumber,
                 amount,
                 reference,
               );
