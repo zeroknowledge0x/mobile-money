@@ -32,7 +32,7 @@ export const createAuthRateLimiter = (config: AuthRateLimiterConfig) =>
   rateLimit({
     windowMs: config.windowMs,
     limit: config.limit,
-    standardHeaders: true,
+    standardHeaders: "draft-7",
     legacyHeaders: false,
     skip: skipRateLimitInTests,
     message: {

@@ -41,7 +41,6 @@ describe("auth rate limiters", () => {
       delete process.env.ENABLE_AUTH_RATE_LIMIT_TESTS;
       return;
     }
-
     process.env.ENABLE_AUTH_RATE_LIMIT_TESTS = previousEnableAuthRateLimitTests;
   });
 
@@ -64,5 +63,26 @@ describe("auth rate limiters", () => {
       error: "Too Many Requests",
       message: "Too many test registration attempts",
     });
+  });
+
+  it("includes Retry-After header on 429 responses", async () => {
+    const app = createTestApp();
+
+    await request(app).post("/login").expect(200);
+    await request(app).post("/login").expect(200);
+
+    const res = await request(app).post("/login").expect(429);
+    expect(res.headers["retry-after"]).toBeDefined();
+    const retryAfter = parseInt(res.headers["retry-after"], 10);
+    expect(retryAfter).toBeGreaterThan(0);
+    expect(retryAfter).toBeLessThanOrEqual(60);
+  });
+
+  it("includes RateLimit-Policy header on successful requests", async () => {
+    const app = createTestApp();
+
+    const res = await request(app).post("/login").expect(200);
+    // draft-7 standard headers — RateLimit-Policy is always present
+    expect(res.headers["ratelimit-policy"]).toBeDefined();
   });
 });
