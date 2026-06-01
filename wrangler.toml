@@ -14,3 +14,12 @@ STELLAR_TOML_STALE_WHILE_REVALIDATE = "86400"
 # Cache TTL for other .well-known paths (seconds)
 DEFAULT_MAX_AGE = "300"
 DEFAULT_STALE_WHILE_REVALIDATE = "3600"
+
+# Bundle optimization settings
+[minify]
+# Enable minification for smaller bundle sizes
+enabled = true
+
+[bundle]
+# Enable tree-shaking to remove unused code
+enabled = true
