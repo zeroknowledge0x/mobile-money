@@ -1,0 +1,51 @@
+name: Deploy Cloudflare Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workers/well-known-cache/**'
+      - 'wrangler.toml'
+      - '.github/workflows/deploy-worker.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+env:
+  WRANGLER_VERSION: '3'
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wrangler
+        run: npm install -g wrangler@${{ env.WRANGLER_VERSION }}
+
+      - name: Inject environment variables
+        run: |
+          chmod +x scripts/inject-wrangler-env.sh
+          ./scripts/inject-wrangler-env.sh ${{ github.event.inputs.environment || 'production' }}
+        env:
+          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
+          STELLAR_TOML_MAX_AGE: ${{ vars.STELLAR_TOML_MAX_AGE || '3600' }}
+          DEFAULT_MAX_AGE: ${{ vars.DEFAULT_MAX_AGE || '300' }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
