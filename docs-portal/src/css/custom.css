@@ -6,6 +6,26 @@
   --ifm-color-primary-light: #33925e;
   --ifm-color-primary-lighter: #359962;
   --ifm-color-primary-lightest: #3cad6e;
+  --ifm-background-color: #ffffff;
+  --ifm-font-color-base: #1a1a2e;
+  --ifm-card-background-color: #ffffff;
+  --ifm-navbar-background-color: #ffffff;
+  --ifm-footer-background-color: #f8f9fa;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #4ecb71;
+  --ifm-color-primary-dark: #3ac45f;
+  --ifm-color-primary-darker: #30b855;
+  --ifm-color-primary-darkest: #279746;
+  --ifm-color-primary-light: #62d283;
+  --ifm-color-primary-lighter: #6cd68c;
+  --ifm-color-primary-lightest: #8ee0a4;
+  --ifm-background-color: #1a1a2e;
+  --ifm-font-color-base: #e0e0e0;
+  --ifm-card-background-color: #24243a;
+  --ifm-navbar-background-color: #1a1a2e;
+  --ifm-footer-background-color: #12121f;
 }
 
 /* Code block copy button styling */
@@ -22,7 +42,65 @@ button.copyButton_node_modules-\@docusaurus-theme-classic-src-theme-CodeBlock-st
   fill: var(--ifm-color-primary);
 }
 
+/* Redoc dark mode overrides */
+[data-theme='dark'] .redoc-wrap {
+  background-color: #1a1a2e;
+}
+
+[data-theme='dark'] .redoc-wrap .menu-content {
+  background-color: #12121f;
+}
+
+[data-theme='dark'] .redoc-wrap .api-content {
+  background-color: #1a1a2e;
+}
+
+[data-theme='dark'] .redoc-wrap h1,
+[data-theme='dark'] .redoc-wrap h2,
+[data-theme='dark'] .redoc-wrap h3,
+[data-theme='dark'] .redoc-wrap h4,
+[data-theme='dark'] .redoc-wrap h5 {
+  color: #e0e0e0;
+}
+
+[data-theme='dark'] .redoc-wrap p,
+[data-theme='dark'] .redoc-wrap li,
+[data-theme='dark'] .redoc-wrap td,
+[data-theme='dark'] .redoc-wrap th {
+  color: #c0c0c0;
+}
+
+[data-theme='dark'] .redoc-wrap a {
+  color: #4ecb71;
+}
+
+[data-theme='dark'] .redoc-wrap code {
+  background-color: #24243a;
+  color: #e0e0e0;
+}
+
 /* Ensure code blocks have visible copy buttons */
 pre code {
   position: relative;
+}
+
+/* Card and panel styling consistency */
+.card {
+  background-color: var(--ifm-card-background-color);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease;
+}
+
+[data-theme='dark'] .card {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Footer link styling */
+.footer__link-item {
+  color: var(--ifm-font-color-base);
+  opacity: 0.8;
+}
+
+.footer__link-item:hover {
+  opacity: 1;
 }
